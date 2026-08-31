@@ -1,0 +1,4 @@
+- add support for mcp
+- add support for adding semantic memory data from file upload
+- create a tui just, from ink node js
+- create a ui for viewing all the memory we have for a user

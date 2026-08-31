@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+/* Markdown inside assistant messages: readable defaults without a plugin. */
+.prose :where(p):not(:last-child) { margin-bottom: 0.75rem; }
+.prose :where(ul, ol) { margin: 0.5rem 0 0.75rem 1.25rem; }
+.prose :where(ul) { list-style: disc; }
+.prose :where(ol) { list-style: decimal; }
+.prose :where(li) { margin: 0.15rem 0; }
+.prose :where(h1, h2, h3) { font-weight: 600; margin: 1rem 0 0.5rem; }
+.prose :where(h1) { font-size: 1.15rem; }
+.prose :where(h2) { font-size: 1.05rem; }
+.prose :where(code) {
+  background: color-mix(in oklab, currentColor 8%, transparent);
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+}
+.prose :where(pre) {
+  background: color-mix(in oklab, currentColor 6%, transparent);
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 0.5rem 0 0.75rem;
+}
+.prose :where(pre code) { background: none; padding: 0; }
+.prose :where(table) { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
+.prose :where(th, td) {
+  border: 1px solid color-mix(in oklab, currentColor 15%, transparent);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+.prose :where(a) { text-decoration: underline; }
+.prose :where(blockquote) {
+  border-left: 3px solid color-mix(in oklab, currentColor 20%, transparent);
+  padding-left: 0.75rem;
+  color: color-mix(in oklab, currentColor 70%, transparent);
+}
