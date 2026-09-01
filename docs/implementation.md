@@ -138,11 +138,17 @@ Deploy it alongside the API (`docker-compose.yml`, service `worker`) or not at a
 
 Ink + React. Same endpoints, same JWT, no harness logic of its own — a different
 surface onto one agent, not a second one. `api.ts` consumes the identical SSE-over-POST
-stream the browser does; `Chat.tsx` renders tool calls as they run, text as it arrives,
-and a trace line at the end (thinking deltas are collected but not printed — a terminal
+stream the browser does; `Chat.tsx` renders tool calls as they run, markdown-rendered
+text as it arrives, and a trace line at the end (thinking deltas are collected but not printed — a terminal
 has no collapsible panel, and reasoning would bury the answer). The JWT is cached at
 `~/.mini-agent/token`, written 0600, and validated against `/auth/me` on start so an
 expired token drops to the sign-in prompt rather than failing on the first message.
+Agent replies are markdown, because the web app renders them — so the TUI renders them
+too rather than showing literal asterisks and fences. `markdown-parser.ts` (pure, tested)
+covers headings, emphasis, inline code, fenced blocks, lists, quotes, rules and links;
+`Markdown.tsx` maps that onto Ink. Tables and images are deliberately unsupported — a
+terminal cannot show them — and anything unrecognised falls through as plain text.
+
 Slash commands: `/new`, `/logout`, `/quit`. Needs a real terminal — piped stdin exits
 with a one-line message instead of a React stack trace.
 

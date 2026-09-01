@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "tsx --env-file=../../.env src/index.tsx",
     "start": "tsx --env-file=../../.env src/index.tsx",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@mini-agent/config": "workspace:*",

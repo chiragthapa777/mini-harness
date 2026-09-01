@@ -1,6 +1,7 @@
 import { Box, Text, useApp, useInput } from "ink";
 import { useRef, useState } from "react";
 import { streamChat, type AuthUser } from "./api.js";
+import { Markdown } from "./Markdown.js";
 import { clearToken } from "./token.js";
 
 interface Turn {
@@ -12,8 +13,8 @@ interface Turn {
 
 /**
  * The chat surface. It streams the same SSE the browser does and renders the
- * same three things: tool calls as they run, text as it arrives, and a trace
- * line when the turn ends. Thinking deltas are collected but not printed —
+ * same three things: tool calls as they run, markdown-rendered text as it
+ * arrives, and a trace line when the turn ends. Thinking deltas are collected but not printed —
  * a terminal has no collapsible panel, and reasoning would bury the answer.
  */
 export function Chat({ token, user }: { token: string; user: AuthUser }) {
@@ -151,7 +152,10 @@ export function Chat({ token, user }: { token: string; user: AuthUser }) {
               {tool.isError === undefined ? "•" : tool.isError ? "✗" : "✓"} {tool.name}
             </Text>
           ))}
-          <Text>{turn.text}</Text>
+          {/* The agent writes markdown because the web app renders it; showing
+              it raw here meant reading literal asterisks and fences. What the
+              user typed is left exactly as typed. */}
+          {turn.role === "assistant" ? <Markdown>{turn.text}</Markdown> : <Text>{turn.text}</Text>}
         </Box>
       ))}
 
