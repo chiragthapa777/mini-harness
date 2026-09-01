@@ -148,6 +148,47 @@ export const adminJobStats = () =>
 export const adminRetryJob = (id: string) =>
   json<AdminJob>(`/admin/jobs/${id}/retry`, { method: "POST" });
 
+export interface Schedule {
+  id: string;
+  kind: "system" | "user";
+  key: string | null;
+  user_id: string | null;
+  name: string;
+  job_type: string;
+  prompt: string | null;
+  cron: string;
+  enabled: boolean;
+  last_run_at: string | null;
+  last_job_id: string | null;
+  next_run_at: string | null;
+  created_at: string;
+}
+
+export const listSchedules = () => json<Schedule[]>("/schedules");
+
+export const createSchedule = (input: { name: string; prompt: string; cron: string }) =>
+  json<Schedule>("/schedules", { method: "POST", body: JSON.stringify(input) });
+
+export const updateSchedule = (
+  id: string,
+  patch: { name?: string; prompt?: string; cron?: string; enabled?: boolean },
+) => json<Schedule>(`/schedules/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+
+export const removeSchedule = (id: string) =>
+  fetch(`/api/schedules/${id}`, { method: "DELETE", headers: authHeaders() });
+
+/** Next few firings for a cron expression — validation the user can actually read. */
+export const previewCron = (cron: string) =>
+  json<{ cron: string; runs: string[] }>(`/schedules/preview?${qs({ cron })}`);
+
+export const adminListSchedules = () => json<Schedule[]>("/admin/schedules");
+
+export const adminSetScheduleEnabled = (id: string, enabled: boolean) =>
+  json<Schedule>(`/admin/schedules/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
+
 function qs(params: Record<string, string | number | boolean | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {

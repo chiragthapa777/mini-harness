@@ -98,6 +98,15 @@ const schema = z.object({
   JOB_RETRY_BASE_MS: numeric(30_000),
   JOB_RETRY_MAX_MS: numeric(900_000),
   JOB_STALE_AFTER_MS: numeric(600_000),
+
+  // Scheduling. The maintenance cadences below are config, not constants in
+  // the worker: a schedule is released like a prompt is.
+  SCHEDULER_ENABLED: boolTrue,
+  SCHEDULER_TICK_MS: numeric(30_000),
+  SUMMARIZE_CRON: str("*/5 * * * *"),
+  CONSOLIDATE_CRON: str("*/15 * * * *"),
+  DEDUPE_FACTS_CRON: str("30 3 * * *"),
+  EMBED_BACKFILL_CRON: str("*/10 * * * *"),
 });
 
 export interface Config {
@@ -138,6 +147,11 @@ export interface Config {
   bootstrapAdmin: { email?: string; password?: string };
   /** Lockout policy after repeated failed logins. */
   auth: { maxLoginAttempts: number; lockoutMinutes: number };
+  /**
+   * Maintenance schedules, seeded into `scheduled_jobs` by the scheduler and
+   * pausable from the admin panel afterwards.
+   */
+  schedules: SystemSchedule[];
   /** Background job runner. `enabled: false` keeps every producer inline. */
   jobs: {
     enabled: boolean;
@@ -147,7 +161,18 @@ export interface Config {
     retryBaseMs: number;
     retryMaxMs: number;
     staleAfterMs: number;
+    schedulerEnabled: boolean;
+    schedulerTickMs: number;
   };
+}
+
+/** A schedule the system owns. `key` is its stable identity across restarts. */
+export interface SystemSchedule {
+  key: string;
+  name: string;
+  /** A `JobType` from `@mini-agent/jobs` — kept as a string so config depends on nothing. */
+  jobType: string;
+  cron: string;
 }
 
 export function getConfig(): Config {
@@ -206,6 +231,34 @@ export function getConfig(): Config {
       retryBaseMs: env.JOB_RETRY_BASE_MS,
       retryMaxMs: env.JOB_RETRY_MAX_MS,
       staleAfterMs: env.JOB_STALE_AFTER_MS,
+      schedulerEnabled: env.SCHEDULER_ENABLED,
+      schedulerTickMs: env.SCHEDULER_TICK_MS,
     },
+    schedules: [
+      {
+        key: "summarize-conversations",
+        name: "Summarize conversations with new messages",
+        jobType: "summarize_sweep",
+        cron: env.SUMMARIZE_CRON,
+      },
+      {
+        key: "consolidate-memory",
+        name: "Consolidate episodic memory into facts",
+        jobType: "consolidate_sweep",
+        cron: env.CONSOLIDATE_CRON,
+      },
+      {
+        key: "dedupe-facts",
+        name: "Merge near-duplicate facts",
+        jobType: "dedupe_sweep",
+        cron: env.DEDUPE_FACTS_CRON,
+      },
+      {
+        key: "embed-backfill",
+        name: "Backfill rows whose embedding never landed",
+        jobType: "embed_backfill",
+        cron: env.EMBED_BACKFILL_CRON,
+      },
+    ],
   };
 }

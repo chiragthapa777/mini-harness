@@ -15,6 +15,28 @@ export {
 
 export { runJob, startWorker, type Worker, type WorkerLogger, type WorkerOptions } from "./worker.js";
 
+export { isValidCron, nextRun, parseCron } from "./cron.js";
+
+export {
+  startScheduler,
+  tick as schedulerTick,
+  type Scheduler,
+  type SchedulerOptions,
+} from "./scheduler.js";
+
+export {
+  createSchedule,
+  deleteSchedule,
+  dueSchedules,
+  getSchedule,
+  listSchedules,
+  seedSystemSchedules,
+  updateSchedule,
+  type CreateScheduleInput,
+  type ScheduleRow,
+  type UpdateScheduleInput,
+} from "./schedules.js";
+
 export {
   EMBEDDABLE_TABLES,
   JOB_TYPES,

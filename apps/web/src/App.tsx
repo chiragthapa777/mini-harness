@@ -6,6 +6,7 @@ import { AuthProvider } from "./lib/AuthContext.js";
 import { Admin } from "./pages/Admin.js";
 import { Chat } from "./pages/Chat.js";
 import { Login } from "./pages/Login.js";
+import { Schedules } from "./pages/Schedules.js";
 
 /**
  * Two chat modes over the same conversations: the original non-streaming
@@ -26,6 +27,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <Chat /> },
           { path: "c/:id", element: <Chat /> },
+          { path: "schedules", element: <Schedules /> },
           {
             element: <RequireAdmin />,
             children: [{ path: "admin", element: <Admin /> }],

@@ -1,4 +1,12 @@
-import { getJob, jobStats, listJobs, retryJob } from "@mini-agent/jobs";
+import {
+  getJob,
+  getSchedule,
+  jobStats,
+  listJobs,
+  listSchedules,
+  retryJob,
+  updateSchedule,
+} from "@mini-agent/jobs";
 import { listFacts } from "@mini-agent/memory";
 import { Router } from "express";
 import { z } from "zod";
@@ -200,6 +208,45 @@ adminRoutes.post("/admin/jobs/:id/retry", async (req, res) => {
     res.json(job);
   } catch (err) {
     logger.error("admin retry job failed", err);
+    res.status(500).json({ error: message(err) });
+  }
+});
+
+// --------------------------------------------------------------- schedules
+
+// Every schedule, system and user. The system ones are seeded from config by
+// the scheduler; the only thing an admin changes here is whether they run.
+adminRoutes.get("/admin/schedules", async (req, res) => {
+  const kind = req.query.kind === "system" || req.query.kind === "user" ? req.query.kind : undefined;
+  try {
+    res.json(await listSchedules({ kind }));
+  } catch (err) {
+    logger.error("admin list schedules failed", err);
+    res.status(500).json({ error: message(err) });
+  }
+});
+
+const adminScheduleSchema = z.object({ enabled: z.boolean() });
+
+/** Pause or resume any schedule — including a noisy maintenance one, which is
+ *  why seeding deliberately never overwrites `enabled`. */
+adminRoutes.patch("/admin/schedules/:id", async (req, res) => {
+  const parsed = adminScheduleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "enabled must be a boolean" });
+    return;
+  }
+
+  const id = String(req.params.id);
+  if (!(await getSchedule(id))) {
+    res.status(404).json({ error: "schedule not found" });
+    return;
+  }
+
+  try {
+    res.json(await updateSchedule(id, parsed.data));
+  } catch (err) {
+    logger.error("admin update schedule failed", err);
     res.status(500).json({ error: message(err) });
   }
 });

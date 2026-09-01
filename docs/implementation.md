@@ -23,7 +23,7 @@ run actually works step by step (the loop, tool calls, working memory), see
 | LLM Ops — trace | Built (per-run trace, admin Traces tab) |
 | LLM Ops — eval / observe / diagnose / gate / release | Not built (TODO 15) |
 | Background job runner (queue + worker) | Built (`packages/jobs`, `apps/worker`) |
-| Cron / scheduled jobs | Not built (TODO 6) |
+| Cron / scheduled jobs | Built (`packages/jobs` scheduler, `scheduled_jobs`) |
 | Named agent personas (per-persona system prompt/config) | Not built — one global `SYSTEM_PROMPT` today (TODO 16) |
 | MCP support | Not built (TODO 14) |
 
@@ -59,6 +59,8 @@ run actually works step by step (the loop, tool calls, working memory), see
   - `TracesTab` — filter/browse traces by user, model, error status, date range; the list
     itself shows a truncated system prompt per row, the expanded detail view has the
     full assembled system prompt plus per-step tool calls for that run.
+  - `SchedulesTab` — every schedule, system and user, with pause/resume. Users manage
+    their own at `/schedules` (cron preview shows the next firings in local time).
   - `JobsTab` — queue depth by status, filter by status/type/user, expand a job for its
     payload, result, timings and error, retry a dead-lettered one. Polls every 5s
     (a queue is only useful live). A job that ran the agent loop stores its `traceId`,
@@ -95,6 +97,13 @@ utils/                        http.ts (message/clampInt/parseDate), sse.ts (SSE 
 | GET | `/admin/jobs/stats` | admin | queue depth by status and type |
 | GET | `/admin/jobs/:id` | admin | one job |
 | POST | `/admin/jobs/:id/retry` | admin | requeue a finished job (409 if still live) |
+| GET | `/admin/schedules` | admin | every schedule, system and user |
+| PATCH | `/admin/schedules/:id` | admin | pause/resume any schedule |
+| GET | `/schedules` | user | own schedules |
+| GET | `/schedules/preview` | user | next 5 firings for a cron expression |
+| POST | `/schedules` | user | create one (name + prompt + cron) |
+| PATCH | `/schedules/:id` | user | edit or pause (own only) |
+| DELETE | `/schedules/:id` | user | delete (own only) |
 | GET | `/conversations` | user | own conversations |
 | POST | `/conversations` | user | create one |
 | GET | `/conversations/:id/messages` | user | messages in one (own only) |
@@ -109,7 +118,7 @@ CRUD moved to `packages/memory` for the same reason.
 ### 2.3 `apps/worker` — the job runner
 
 A second entrypoint onto the same harness, not a second harness. `src/index.ts` starts
-the poll loop from `packages/jobs` and drains the current batch on SIGINT/SIGTERM;
+the poll loop and the scheduler from `packages/jobs` and drains the current batch on SIGINT/SIGTERM;
 `src/handlers.ts` is the dispatch table mapping a job type to the package function that
 does the work. Today it registers `agent_run` — a full agent turn with nobody watching,
 persisted exactly like a chat turn (same episodic write, same trace).
@@ -183,12 +192,26 @@ job is a row with a terminal status, not a deleted one.
   (exponential backoff to `max_attempts`, then dead-letter), `reapStale` (a job still
   `running` past the stale window went down with its worker), plus the admin reads
   `listJobs` / `getJob` / `jobStats` / `retryJob`.
+- **`cron.ts`** — a five-field cron parser in UTC (`*`, `n`, `a-b`, lists, steps, and the
+  `@daily`-style aliases), written rather than depended on: the surface needed is "is
+  this valid" and "when next", and a schedule that quietly changes meaning after a
+  dependency bump is worse than one we can read. Day-of-month and day-of-week OR when
+  both are restricted, as in every other cron.
+- **`schedules.ts` / `scheduler.ts`** — `scheduled_jobs` holds both config-defined
+  maintenance schedules (`kind = 'system'`, stable `key`, seeded on worker start —
+  seeding updates name/cron but never `enabled`, so an admin's pause survives a deploy)
+  and user schedules (a prompt on a cadence, fired as `agent_run`). The tick only
+  enqueues: a slow job never delays the next tick, and scheduled work inherits the same
+  retry policy as everything else. Two guards against pile-up — a schedule with a job
+  still queued/running skips its firing, and the enqueue carries a `schedule:<id>` dedupe
+  key so two schedulers still produce one job.
 - **`worker.ts`** — `startWorker` (claim → run → mark, sleeping only when the queue is
   empty) and `runJob` for executing one job inline. A handler that throws is recorded on
   the job, never fatal to the worker.
-- **`test/queue.test.ts`** — runs against real Postgres, skipped when `DATABASE_URL` is
-  unset. Covers dedupe, exclusive claim, result capture, backoff → dead-letter → manual
-  retry, unregistered types, and the stale reaper.
+- **`test/`** — `cron.test.ts` (pure); `queue.test.ts` and `scheduler.test.ts` run
+  against real Postgres and skip when `DATABASE_URL` is unset. Between them: dedupe,
+  exclusive claim, result capture, backoff → dead-letter → manual retry, unregistered
+  types, the stale reaper, idempotent seeding, the overlap guard, and pause/resume.
 
 ### 3.5 `packages/agent` — one run, assembled and persisted
 
@@ -210,6 +233,7 @@ Schema (`schema.sql`, applied on first boot of an empty Postgres volume):
 | `facts` | semantic memory — kind, content, embedding, source |
 | `traces` | one row per agent run — tokens, latency, stop reason, steps (jsonb), system prompt |
 | `jobs` | background work — type, payload, status, attempts, backoff schedule, dedupe key, result |
+| `scheduled_jobs` | cron schedules — system (from config, keyed) and user (prompt + cadence), with `next_run_at` and the last job fired |
 
 ### 3.7 `packages/search`
 

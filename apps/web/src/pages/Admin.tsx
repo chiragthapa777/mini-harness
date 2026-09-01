@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { JobsTab } from "../components/admin/JobsTab.js";
 import { MemoryTab } from "../components/admin/MemoryTab.js";
+import { SchedulesTab } from "../components/admin/SchedulesTab.js";
 import { TracesTab } from "../components/admin/TracesTab.js";
 import { UsersTab } from "../components/admin/UsersTab.js";
 import { MenuButton } from "../components/Layout.js";
@@ -13,6 +14,7 @@ const TABS = [
   { id: "memory", label: "Memory" },
   { id: "traces", label: "Traces" },
   { id: "jobs", label: "Jobs" },
+  { id: "schedules", label: "Schedules" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -57,6 +59,7 @@ export function Admin() {
         {tab === "memory" && <MemoryTab users={users} />}
         {tab === "traces" && <TracesTab users={users} />}
         {tab === "jobs" && <JobsTab users={users} />}
+        {tab === "schedules" && <SchedulesTab users={users} />}
       </div>
     </>
   );

@@ -155,3 +155,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_dedupe_idx
 -- Recovering a stuck job needs the start time of everything still running.
 CREATE INDEX IF NOT EXISTS jobs_running_idx ON jobs (started_at) WHERE status = 'running';
 
+-- --------------------------------------------------------------- schedules
+-- Cron, in the app rather than in the database: one table for both the
+-- maintenance schedules defined in config (`kind = 'system'`, identified by a
+-- stable `key`) and the ones a user creates (`kind = 'user'`, a prompt plus a
+-- cadence). The scheduler tick turns a due row into a `jobs` row and nothing
+-- else — firing and running stay separate concerns.
+
+CREATE TABLE IF NOT EXISTS scheduled_jobs (
+  id           bigserial PRIMARY KEY,
+  kind         text NOT NULL DEFAULT 'user' CHECK (kind IN ('system', 'user')),
+  -- stable identity for a config-defined schedule; null for user schedules
+  key          text UNIQUE,
+  user_id      text,
+  name         text NOT NULL,
+  job_type     text NOT NULL,
+  payload      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- what a user schedule sends the agent; null for maintenance schedules
+  prompt       text,
+  cron         text NOT NULL,
+  enabled      boolean NOT NULL DEFAULT true,
+  last_run_at  timestamptz,
+  -- the job this schedule fired last, so a slow run is not fired again on top of itself
+  last_job_id  bigint REFERENCES jobs(id) ON DELETE SET NULL,
+  next_run_at  timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS scheduled_jobs_due_idx ON scheduled_jobs (next_run_at) WHERE enabled;
+CREATE INDEX IF NOT EXISTS scheduled_jobs_user_idx ON scheduled_jobs (user_id, created_at DESC);
+

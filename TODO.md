@@ -38,7 +38,7 @@ consolidation) onto it, then wire what that produces back into the run loop.
   - new `JobsTab` (apps/web/src/components/admin/, alongside MemoryTab/TracesTab/UsersTab, registered in apps/web/src/pages/Admin.tsx) — queue depth by status, recent failures, per-job payload/attempts/last_error
   - link a job to its trace where it has one, so a failed `agent_run` job is one click from the trace that failed
 
-- [ ] 6. cron / scheduled jobs — a scheduler tick that enqueues due work onto #4
+- [x] 6. cron / scheduled jobs — a scheduler tick that enqueues due work onto #4
   - depends on #4
   - two kinds of schedule, one mechanism:
     - **system schedules** — internal maintenance defined in config (packages/config): the 5-minute conversation-summary tick (#8), consolidation (#10), fact dedup (#11)
