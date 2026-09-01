@@ -6,6 +6,9 @@ Architecture: [docs/architecture.md](docs/architecture.md) (diagram: `docs/arch.
 Read it before touching the run loop, memory layer, or ops path — it defines the boundaries
 those pieces live in.
 
+Implementation: [docs/implementation.md](docs/implementation.md) — what is actually built
+today (endpoints, schema, packages, gaps), as opposed to architecture.md's plan.
+
 ## Tech stack — do not add alternatives
 
 | Concern | Choice |
@@ -63,3 +66,7 @@ Anything imported by more than one app belongs in `packages/`, not copied betwee
 - Retrieval is per store: procedural loads direct, semantic is RAG top-k, episodic is RAG for relevance plus SQL for recency.
 - Prompts, model config, tool definitions, and RAG params are **config** — versioned and released, not inlined at call sites.
 - Guardrails (iteration cap, token/cost budget, output validation) are required on any new loop.
+- When a task or feature is finished, update [docs/implementation.md](docs/implementation.md)
+  in the same change — new/changed endpoints, schema, packages, tools, or config. If the
+  shape of the system itself changed (not just what's built inside it), update
+  [docs/architecture.md](docs/architecture.md) too. Docs must never lag the code.
