@@ -99,7 +99,7 @@ consolidation) onto it, then wire what that produces back into the run loop.
   - decide accepted types first (txt/md to start; PDF needs a parser dependency)
   - chunk embedding should go through the async path from #7 — a 200-chunk upload must not embed inline
 
-- [ ] 13. create a tui just, from ink node js
+- [x] 13. create a tui just, from ink node js
   - new `apps/tui` package, Ink + React for the terminal UI
   - talks to the same `/chat` or `/chat/stream` endpoints apps/web already uses — no new backend needed for a plain chat TUI
   - auth: reuse the JWT login flow (apps/api/src/routes/auth.routes.ts), token cached locally (e.g. `~/.mini-agent/token`)

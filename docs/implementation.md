@@ -16,7 +16,8 @@ run actually works step by step (the loop, tool calls, working memory), see
 | Layer (from architecture.md) | State |
 |---|---|
 | Gateway — web app | Built (`apps/web`), admin dashboard incl. job monitoring |
-| Gateway — TUI, WhatsApp/Telegram bot | Not built (TODO 13, 18) |
+| Gateway — TUI | Built (`apps/tui`, Ink) |
+| Gateway — WhatsApp/Telegram bot | Not built (TODO 18) |
 | Agentic loop, tool protocol, guardrails | Built (`packages/core`) |
 | Procedural / semantic / episodic memory | Built (`packages/memory`) |
 | Memory consolidation (episodic → semantic) | Built — `extractFacts` + `consolidate_user` job on a schedule |
@@ -132,6 +133,18 @@ persisted exactly like a chat turn (same episodic write, same trace).
 
 Deploy it alongside the API (`docker-compose.yml`, service `worker`) or not at all: with
 `JOBS_ENABLED=false` every producer does its work inline instead of enqueueing it.
+
+### 2.4 `apps/tui` — terminal gateway
+
+Ink + React. Same endpoints, same JWT, no harness logic of its own — a different
+surface onto one agent, not a second one. `api.ts` consumes the identical SSE-over-POST
+stream the browser does; `Chat.tsx` renders tool calls as they run, text as it arrives,
+and a trace line at the end (thinking deltas are collected but not printed — a terminal
+has no collapsible panel, and reasoning would bury the answer). The JWT is cached at
+`~/.mini-agent/token`, written 0600, and validated against `/auth/me` on start so an
+expired token drops to the sign-in prompt rather than failing on the first message.
+Slash commands: `/new`, `/logout`, `/quit`. Needs a real terminal — piped stdin exits
+with a one-line message instead of a React stack trace.
 
 ---
 
