@@ -1,7 +1,7 @@
-#!/usr/bin/env -S npx tsx
 import { Box, render, Text } from "ink";
 import { useEffect, useState } from "react";
 import { me, type AuthUser } from "./api.js";
+import { applyArgs } from "./cli.js";
 import { Chat } from "./Chat.js";
 import { Login } from "./Login.js";
 import { clearToken, readToken } from "./token.js";
@@ -53,6 +53,15 @@ function App() {
   }
 
   return <Chat token={token} user={user} />;
+}
+
+// Flags first: --help and --version have to work in a pipe (`mini-agent
+// --help | less` is the obvious thing to try), so they are answered before the
+// terminal check below.
+const { exit } = applyArgs();
+if (exit) {
+  (exit.code === 0 ? console.log : console.error)(exit.message);
+  process.exit(exit.code);
 }
 
 // Ink reads keystrokes in raw mode, which needs a real terminal. Piped or

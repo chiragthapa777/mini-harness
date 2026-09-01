@@ -149,6 +149,13 @@ covers headings, emphasis, inline code, fenced blocks, lists, quotes, rules and 
 `Markdown.tsx` maps that onto Ink. Tables and images are deliberately unsupported — a
 terminal cannot show them — and anything unrecognised falls through as plain text.
 
+Installable: `pnpm --filter @mini-agent/tui build` bundles it (esbuild) into one
+executable file, `dist/mini-agent.mjs`, which `npm i -g .` or a copy onto PATH turns
+into a `mini-agent` command. A bundle rather than a package with dependencies because
+the TUI imports `@mini-agent/config`, a workspace package npm cannot resolve. Installed
+there is no `.env` nearby, so the server address comes from `--api` or `API_URL`.
+See [`docs/tui.md`](tui.md), which also covers the standalone-binary options.
+
 Slash commands: `/new`, `/logout`, `/quit`. Needs a real terminal — piped stdin exits
 with a one-line message instead of a React stack trace.
 
