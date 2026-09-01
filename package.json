@@ -7,7 +7,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev": "pnpm --parallel --filter \"./apps/*\" --filter \"!@mini-agent/tui\" dev",
+    "dev:tui": "pnpm --filter @mini-agent/tui dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "db:schema": "psql postgres://postgres:postgres@localhost:5433/mini_agent -f packages/db/schema.sql",

@@ -4,7 +4,7 @@ import {
   getSchedule,
   isValidCron,
   listSchedules,
-  nextRuns,
+  nextRun,
   updateSchedule,
 } from "@mini-agent/jobs";
 import { Router } from "express";
@@ -44,7 +44,10 @@ const updateSchema = z.object({
 schedulesRoutes.get("/schedules", async (req, res) => {
   const { userId } = req as AuthedRequest;
   try {
-    res.json(await listSchedules({ userId, kind: "user" }));
+    // A user's own schedules: the list is short by nature, so the first page
+    // is the whole thing rather than another pager in the UI.
+    const { schedules } = await listSchedules({ userId, kind: "user", limit: 200 });
+    res.json(schedules);
   } catch (err) {
     logger.error("list schedules failed", err);
     res.status(500).json({ error: message(err) });
@@ -59,7 +62,14 @@ schedulesRoutes.get("/schedules/preview", (req, res) => {
     return;
   }
 
-  const runs = nextRuns(expression, 5).map((run) => run.toISOString());
+  const runs: string[] = [];
+  let cursor = new Date();
+  for (let i = 0; i < 5; i++) {
+    const next = nextRun(expression, cursor);
+    if (!next) break;
+    runs.push(next.toISOString());
+    cursor = next;
+  }
   res.json({ cron: expression, runs });
 });
 

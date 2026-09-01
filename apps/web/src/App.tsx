@@ -1,9 +1,14 @@
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
 import { Layout } from "./components/Layout.js";
 import { RequireAdmin } from "./components/RequireAdmin.js";
 import { RequireAuth } from "./components/RequireAuth.js";
 import { AuthProvider } from "./lib/AuthContext.js";
-import { Admin } from "./pages/Admin.js";
+import { AdminLayout } from "./pages/admin/AdminLayout.js";
+import { AdminJobs } from "./pages/admin/Jobs.js";
+import { AdminMemory } from "./pages/admin/Memory.js";
+import { AdminSchedules } from "./pages/admin/Schedules.js";
+import { AdminTraces } from "./pages/admin/Traces.js";
+import { AdminUsers } from "./pages/admin/Users.js";
 import { Chat } from "./pages/Chat.js";
 import { Login } from "./pages/Login.js";
 import { Schedules } from "./pages/Schedules.js";
@@ -30,7 +35,22 @@ const router = createBrowserRouter([
           { path: "schedules", element: <Schedules /> },
           {
             element: <RequireAdmin />,
-            children: [{ path: "admin", element: <Admin /> }],
+            children: [
+              {
+                // One route per admin page rather than tabs: each gets an
+                // address worth sharing, a back button, and its own pagination.
+                path: "admin",
+                element: <AdminLayout />,
+                children: [
+                  { index: true, element: <Navigate to="/admin/users" replace /> },
+                  { path: "users", element: <AdminUsers /> },
+                  { path: "memory", element: <AdminMemory /> },
+                  { path: "traces", element: <AdminTraces /> },
+                  { path: "jobs", element: <AdminJobs /> },
+                  { path: "schedules", element: <AdminSchedules /> },
+                ],
+              },
+            ],
           },
         ],
       },

@@ -128,9 +128,19 @@ export async function createSchedule(input: CreateScheduleInput): Promise<Schedu
   return row;
 }
 
+/**
+ * Paginated, and always with the total — the admin table pages through every
+ * schedule in the system, and a user's own list is short enough that the first
+ * page is all of it.
+ */
 export async function listSchedules(
-  filters: { userId?: string; kind?: "system" | "user" } = {},
-): Promise<ScheduleRow[]> {
+  filters: {
+    userId?: string;
+    kind?: "system" | "user";
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<{ schedules: ScheduleRow[]; total: number }> {
   const clauses: string[] = [];
   const params: unknown[] = [];
 
@@ -144,10 +154,17 @@ export async function listSchedules(
   }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
 
-  return query<ScheduleRow>(
-    `SELECT ${COLUMNS} FROM scheduled_jobs ${where} ORDER BY kind, created_at DESC`,
-    params,
-  );
+  const [schedules, countRows] = await Promise.all([
+    query<ScheduleRow>(
+      `SELECT ${COLUMNS} FROM scheduled_jobs ${where}
+        ORDER BY kind, created_at DESC
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, filters.limit ?? 50, filters.offset ?? 0],
+    ),
+    query<{ count: string }>(`SELECT count(*)::text FROM scheduled_jobs ${where}`, params),
+  ]);
+
+  return { schedules, total: Number(countRows[0]?.count ?? 0) };
 }
 
 export async function getSchedule(id: string): Promise<ScheduleRow | undefined> {

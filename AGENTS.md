@@ -28,7 +28,6 @@ end (working memory, the loop, tool calls, persistence), with file references.
 | Layout | Monorepo — many apps and packages |
 | LLM access | `packages/llm` — our own chat transport over the official provider SDKs |
 | Provider | OpenRouter (OpenAI wire format), default model `z-ai/glm-5.3-flash` |
-| Cron expressions | `croner` — parsing and next-run only; firing stays DB-driven |
 
 **`packages/llm` is a transport, not a framework.** It gives us one chat
 interface across providers and nothing else: `ChatClient` is two methods,

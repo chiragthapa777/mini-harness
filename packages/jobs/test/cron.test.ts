@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isValidCron, nextRun, nextRuns } from "../src/cron.js";
+import { isValidCron, nextRun, parseCron } from "../src/cron.js";
 
 const at = (iso: string) => new Date(iso);
 const next = (expr: string, from: string) => nextRun(expr, at(from))?.toISOString();
@@ -48,39 +48,13 @@ describe("cron", () => {
     assert.equal(nextRun("0 0 30 2 *", at("2026-01-01T00:00:00Z")), null);
   });
 
-  it("rejects malformed expressions", () => {
+  it("rejects malformed expressions loudly", () => {
+    assert.throws(() => parseCron("* * * *"), /needs 5 fields/);
+    assert.throws(() => parseCron("60 * * * *"), /out of range/);
+    assert.throws(() => parseCron("* * * * 8"), /out of range/);
+    assert.throws(() => parseCron("*/0 * * * *"), /step must be >= 1/);
+    assert.throws(() => parseCron("a * * * *"), /invalid cron field/);
     assert.equal(isValidCron("*/5 * * * *"), true);
     assert.equal(isValidCron("nope"), false);
-    assert.equal(isValidCron("* * * *"), false, "four fields");
-    assert.equal(isValidCron("60 * * * *"), false, "minute out of range");
-    assert.equal(isValidCron("* * * * 8"), false, "day-of-week out of range");
-    assert.equal(isValidCron("*/0 * * * *"), false, "zero step");
-    assert.equal(isValidCron("a * * * *"), false, "not a number");
-  });
-
-  it("rejects sub-minute patterns, which the queue could not honour anyway", () => {
-    // Croner accepts 6- and 7-field patterns by default; pinning it to 5 keeps
-    // "every second" unexpressible, so the finest schedule is one a minute.
-    assert.equal(isValidCron("* * * * * *"), false, "six fields (leading seconds)");
-    assert.equal(isValidCron("0 * * * * * 2027"), false, "seven fields (trailing year)");
-  });
-
-  it("rejects an expression that can never fire", () => {
-    // Well-formed, but the 30th of February does not happen.
-    assert.equal(isValidCron("0 0 30 2 *"), false);
-  });
-
-  it("resolves in UTC regardless of the server's timezone", () => {
-    // Would be an off-by-hours failure if croner were left on local time.
-    assert.equal(next("0 3 * * *", "2026-06-15T12:00:00Z"), "2026-06-16T03:00:00.000Z");
-    assert.equal(next("0 0 * * *", "2026-01-01T23:30:00Z"), "2026-01-02T00:00:00.000Z");
-  });
-
-  it("enumerates the next few firings for a preview", () => {
-    const runs = nextRuns("0 * * * *", 3, at("2026-01-01T10:30:00Z"));
-    assert.deepEqual(
-      runs.map((r) => r.toISOString()),
-      ["2026-01-01T11:00:00.000Z", "2026-01-01T12:00:00.000Z", "2026-01-01T13:00:00.000Z"],
-    );
   });
 });

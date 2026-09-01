@@ -39,8 +39,13 @@ const adminCreateUserSchema = z.object({
 });
 
 /** No self-registration: accounts are provisioned by an admin (or the startup bootstrap). */
-adminRoutes.get("/admin/users", async (_req, res) => {
-  res.json(await listUsers());
+adminRoutes.get("/admin/users", async (req, res) => {
+  res.json(
+    await listUsers({
+      limit: clampInt(req.query.limit, 50, 1, 500),
+      offset: clampInt(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+    }),
+  );
 });
 
 adminRoutes.post("/admin/users", async (req, res) => {
@@ -265,7 +270,13 @@ adminRoutes.post("/admin/jobs/:id/retry", async (req, res) => {
 adminRoutes.get("/admin/schedules", async (req, res) => {
   const kind = req.query.kind === "system" || req.query.kind === "user" ? req.query.kind : undefined;
   try {
-    res.json(await listSchedules({ kind }));
+    res.json(
+      await listSchedules({
+        kind,
+        limit: clampInt(req.query.limit, 50, 1, 200),
+        offset: clampInt(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+      }),
+    );
   } catch (err) {
     logger.error("admin list schedules failed", err);
     res.status(500).json({ error: message(err) });

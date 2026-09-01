@@ -53,20 +53,25 @@ run actually works step by step (the loop, tool calls, working memory), see
     failed), and a trace bar (model, iterations, tokens, latency, stop reason).
 - **Auth** (`src/lib/AuthContext.tsx`): token in memory + storage, validated against
   `/auth/me` once on load. `RequireAuth`/`RequireAdmin` (`src/components/`) gate routes.
-- **Admin dashboard** (`src/pages/Admin.tsx`), three tabs, each its own component under
-  `src/components/admin/`:
-  - `UsersTab` — list/create users, change role, clear a lockout.
-  - `MemoryTab` — browse any user's semantic facts (admin-only), with a "show merged"
-    toggle revealing archived facts and the id each was merged into.
-  - `TracesTab` — filter/browse traces by user, model, error status, date range; the list
-    itself shows a truncated system prompt per row, the expanded detail view has the
-    full assembled system prompt plus per-step tool calls for that run.
-  - `SchedulesTab` — every schedule, system and user, with pause/resume. Users manage
-    their own at `/schedules` (cron preview shows the next firings in local time).
-  - `JobsTab` — queue depth by status, filter by status/type/user, expand a job for its
-    payload, result, timings and error, retry a dead-lettered one. Polls every 5s
-    (a queue is only useful live). A job that ran the agent loop stores its `traceId`,
-    so the row expands straight into the shared `TraceDetail` view.
+- **Admin section** (`src/pages/admin/`), one route per page rather than tabs — each has
+  an address worth sharing, its own back-button entry, and its own pagination:
+  `/admin/users`, `/admin/memory`, `/admin/traces`, `/admin/jobs`, `/admin/schedules`
+  (`/admin` redirects to the first). `AdminLayout` holds the nav and fetches the user
+  list once, since four of the five pages need it for a picker.
+  - `Users` — create accounts, change role, clear a lockout.
+  - `Memory` — any user's semantic facts, filterable by kind, with a "show merged" toggle
+    that reveals archived facts and the id each was merged into, plus .txt/.md upload.
+  - `Traces` — filter by user, model, error status, date range; a row expands into the
+    full assembled system prompt and per-step tool calls.
+  - `Jobs` — queue depth by status, filters, expandable payload/result/timings, retry on
+    dead-lettered rows, polling every 5s. A row that ran the agent loop expands into the
+    shared `TraceDetail`.
+  - `Schedules` — every schedule, system and user, with pause/resume.
+- **Table kit** (`src/components/admin/Table.tsx`) — `DataTable` (columns + rows, with
+  optional expansion), `Pager`, `Toolbar`, `Badge`, `Field`, `PageHeader`. Every admin
+  page is a filtered, paginated list, so alignment, density, empty and loading states,
+  and the pager are decided once rather than five times. Every table is paginated
+  server-side, including users and schedules, which used to fetch everything.
 
 ### 2.2 `apps/api` — Express
 
@@ -89,7 +94,7 @@ utils/                        http.ts (message/clampInt/parseDate), sse.ts (SSE 
 | GET | `/health` | — | liveness |
 | POST | `/auth/login` | — | email+password → JWT; 423 if locked out |
 | GET | `/auth/me` | user | current user from the token |
-| GET | `/admin/users` | admin | list users |
+| GET | `/admin/users` | admin | list users, paginated (`{users,total}`) |
 | POST | `/admin/users` | admin | create a user |
 | PATCH | `/admin/users/:id` | admin | change role and/or clear lockout |
 | GET | `/admin/facts` | admin | a user's semantic facts, paginated (`includeArchived`) |
@@ -100,7 +105,7 @@ utils/                        http.ts (message/clampInt/parseDate), sse.ts (SSE 
 | GET | `/admin/jobs/stats` | admin | queue depth by status and type |
 | GET | `/admin/jobs/:id` | admin | one job |
 | POST | `/admin/jobs/:id/retry` | admin | requeue a finished job (409 if still live) |
-| GET | `/admin/schedules` | admin | every schedule, system and user |
+| GET | `/admin/schedules` | admin | every schedule, paginated (`{schedules,total}`) |
 | PATCH | `/admin/schedules/:id` | admin | pause/resume any schedule |
 | GET | `/schedules` | user | own schedules |
 | GET | `/schedules/preview` | user | next 5 firings for a cron expression |
@@ -270,20 +275,11 @@ job is a row with a terminal status, not a deleted one.
   (exponential backoff to `max_attempts`, then dead-letter), `reapStale` (a job still
   `running` past the stale window went down with its worker), plus the admin reads
   `listJobs` / `getJob` / `jobStats` / `retryJob`.
-- **`cron.ts`** — cron expression handling, in UTC, over `croner`. Three functions and
-  nothing else: `isValidCron`, `nextRun`, `nextRuns` (the last backs `/schedules/preview`).
-  Croner's `Cron` is also a live in-process scheduler; that is deliberately not
-  re-exported, because firing is the database's job — a `next_run_at` polled by
-  `scheduler.ts`, which survives a restart and stays correct with more than one worker.
-  Constructed with no callback, so nothing is ever scheduled and no `name`, so nothing
-  lands in croner's global job registry. Three options carry the semantics: `mode:
-  "5-part"` (6- and 7-field patterns are refused, so "every second" is unexpressible and
-  the finest schedule is one a minute), `timezone: "UTC"` (croner defaults to local time,
-  which would move a schedule's meaning with the server's TZ and with DST), and
-  `sloppyRanges: true` (keeps `5/10`-style numeric-prefix stepping working, as Vixie cron
-  and the hand-rolled parser this replaced both did). `isValidCron` also rejects
-  expressions that parse but never fire, like `0 0 30 2 *`. Day-of-month and day-of-week
-  OR when both are restricted, as in every other cron.
+- **`cron.ts`** — a five-field cron parser in UTC (`*`, `n`, `a-b`, lists, steps, and the
+  `@daily`-style aliases), written rather than depended on: the surface needed is "is
+  this valid" and "when next", and a schedule that quietly changes meaning after a
+  dependency bump is worse than one we can read. Day-of-month and day-of-week OR when
+  both are restricted, as in every other cron.
 - **`schedules.ts` / `scheduler.ts`** — `scheduled_jobs` holds both config-defined
   maintenance schedules (`kind = 'system'`, stable `key`, seeded on worker start —
   seeding updates name/cron but never `enabled`, so an admin's pause survives a deploy)

@@ -46,7 +46,13 @@ export interface AdminUser {
   created_at: string;
 }
 
-export const adminListUsers = () => json<AdminUser[]>("/admin/users");
+/**
+ * Paginated. The admin Users page pages through it; the pickers on the other
+ * admin pages ask for one large page, which is the same endpoint rather than a
+ * second way to list users.
+ */
+export const adminListUsers = (opts: { limit?: number; offset?: number } = {}) =>
+  json<{ users: AdminUser[]; total: number }>(`/admin/users?${qs(opts)}`);
 
 export const adminCreateUser = (email: string, password: string, role: "user" | "admin") =>
   json<{ id: string; email: string; role: "user" | "admin" }>("/admin/users", {
@@ -198,7 +204,9 @@ export const removeSchedule = (id: string) =>
 export const previewCron = (cron: string) =>
   json<{ cron: string; runs: string[] }>(`/schedules/preview?${qs({ cron })}`);
 
-export const adminListSchedules = () => json<Schedule[]>("/admin/schedules");
+export const adminListSchedules = (
+  opts: { kind?: "system" | "user"; limit?: number; offset?: number } = {},
+) => json<{ schedules: Schedule[]; total: number }>(`/admin/schedules?${qs(opts)}`);
 
 export const adminSetScheduleEnabled = (id: string, enabled: boolean) =>
   json<Schedule>(`/admin/schedules/${id}`, {
