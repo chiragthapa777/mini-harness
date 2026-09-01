@@ -81,6 +81,13 @@ const schema = z.object({
   // How many of a conversation's messages one summarize pass reads.
   SUMMARY_MAX_MESSAGES: numeric(120),
 
+  // Uploaded documents. A chunk is what comes back from a search and lands in
+  // the prompt, so it has to read sensibly on its own.
+  UPLOAD_CHUNK_CHARS: numeric(1_000),
+  UPLOAD_CHUNK_OVERLAP: numeric(150),
+  // Ceiling on one uploaded file, in characters.
+  UPLOAD_MAX_CHARS: numeric(400_000),
+
   // Fact consolidation. Distance is pgvector cosine distance (0 = identical),
   // so a *smaller* threshold merges less. 0.45 was measured, not guessed: with
   // text-embedding-3-small, paraphrases of one fact land at 0.18-0.39 while
@@ -162,6 +169,9 @@ export interface Config {
     summaryMaxTokens: number;
     summaryMaxWords: number;
     summaryMaxMessages: number;
+    uploadChunkChars: number;
+    uploadChunkOverlap: number;
+    uploadMaxChars: number;
     factDedupeDistance: number;
     factDedupeMinFacts: number;
     factMaxPerUser: number;
@@ -251,6 +261,9 @@ export function getConfig(): Config {
       summaryMaxTokens: env.SUMMARY_MAX_TOKENS,
       summaryMaxWords: env.SUMMARY_MAX_WORDS,
       summaryMaxMessages: env.SUMMARY_MAX_MESSAGES,
+      uploadChunkChars: env.UPLOAD_CHUNK_CHARS,
+      uploadChunkOverlap: env.UPLOAD_CHUNK_OVERLAP,
+      uploadMaxChars: env.UPLOAD_MAX_CHARS,
       factDedupeDistance: env.FACT_DEDUPE_DISTANCE,
       factDedupeMinFacts: env.FACT_DEDUPE_MIN_FACTS,
       factMaxPerUser: env.FACT_MAX_PER_USER,

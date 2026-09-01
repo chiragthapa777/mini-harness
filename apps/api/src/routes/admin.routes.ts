@@ -1,3 +1,4 @@
+import { getConfig } from "@mini-agent/config";
 import {
   getJob,
   getSchedule,
@@ -7,7 +8,7 @@ import {
   retryJob,
   updateSchedule,
 } from "@mini-agent/jobs";
-import { listFacts } from "@mini-agent/memory";
+import { ingestDocument, listFacts } from "@mini-agent/memory";
 import { Router } from "express";
 import { z } from "zod";
 import { logger } from "../logger.js";
@@ -116,6 +117,48 @@ adminRoutes.get("/admin/facts", async (req, res) => {
     res.json(await listFacts(userId, { kind, includeArchived, limit, offset }));
   } catch (err) {
     logger.error("admin list facts failed", err);
+    res.status(500).json({ error: message(err) });
+  }
+});
+
+/**
+ * Upload reference material into a user's semantic memory.
+ *
+ * The file arrives as text in JSON rather than multipart: the browser can read
+ * a .txt/.md file itself, and this keeps a file-upload dependency and a
+ * temp-file lifecycle out of the server for a feature whose payload is a
+ * string. Binary formats (PDF) would need a parser and can arrive with one.
+ */
+const uploadSchema = z.object({
+  userId: z.string().min(1),
+  filename: z.string().trim().min(1).max(200),
+  content: z.string().min(1),
+  kind: z.enum(["fact", "profile", "domain_rule", "data_dictionary"]).default("data_dictionary"),
+});
+
+adminRoutes.post("/admin/facts/upload", async (req, res) => {
+  const parsed = uploadSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "userId, filename and non-empty text content are required" });
+    return;
+  }
+
+  const { userId, filename, content, kind } = parsed.data;
+  const maxChars = getConfig().memory.uploadMaxChars;
+  if (content.length > maxChars) {
+    res.status(413).json({ error: `file is too large — the limit is ${maxChars} characters` });
+    return;
+  }
+  if (!(await findUserById(userId))) {
+    res.status(404).json({ error: "user not found" });
+    return;
+  }
+
+  try {
+    const result = await ingestDocument(userId, filename, content, { kind });
+    res.status(201).json(result);
+  } catch (err) {
+    logger.error("admin upload facts failed", err);
     res.status(500).json({ error: message(err) });
   }
 });

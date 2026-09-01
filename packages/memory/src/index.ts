@@ -25,7 +25,13 @@ export {
   usersNeedingConsolidation,
   type Summarizer,
 } from "./consolidate.js";
+export { chunkText, type ChunkOptions } from "./chunk.js";
 export { dedupeFacts, usersNeedingDedupe, type DedupeResult } from "./dedupe.js";
+export {
+  ingestDocument,
+  type IngestOptions,
+  type IngestResult,
+} from "./ingest.js";
 export {
   conversationsNeedingSummary,
   conversationSummary,

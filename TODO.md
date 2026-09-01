@@ -92,7 +92,7 @@ consolidation) onto it, then wire what that produces back into the run loop.
     - **cap per user** — a max fact count with archive-the-least-relevant, so top-k quality does not decay as the table grows
   - admin visibility: MemoryTab (apps/web/src/components/admin/MemoryTab.tsx) should show archived/superseded facts under a filter, otherwise a merge looks like data loss
 
-- [ ] 12. add support for adding semantic memory data from file upload
+- [x] 12. add support for adding semantic memory data from file upload
   - upload endpoint (apps/api) that chunks a file and calls `writeFact` per chunk (packages/memory/src/semantic.ts)
   - needs a chunking strategy (size/overlap) — nothing in the repo does this today
   - admin UI: file picker on the MemoryTab (apps/web/src/components/admin/MemoryTab.tsx)

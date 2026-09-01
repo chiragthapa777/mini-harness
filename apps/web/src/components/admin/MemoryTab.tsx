@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { adminListFacts, type AdminFact, type AdminUser } from "../../lib/api.js";
+import {
+  adminListFacts,
+  adminUploadFacts,
+  type AdminFact,
+  type AdminUser,
+} from "../../lib/api.js";
 
 const inputClass =
   "rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900";
@@ -21,6 +26,8 @@ export function MemoryTab({ users }: { users: AdminUser[] }) {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     if (!userId && users[0]) setUserId(users[0].id);
@@ -37,7 +44,26 @@ export function MemoryTab({ users }: { users: AdminUser[] }) {
       })
       .catch((err) => setError(err instanceof Error ? err.message : "failed to load memory"))
       .finally(() => setLoading(false));
-  }, [userId, kind, includeArchived, offset]);
+  }, [userId, kind, includeArchived, offset, reload]);
+
+  /**
+   * Text files only. The chunking, the source labels, and the queued
+   * embeddings all happen server-side — this reads the file and posts it.
+   */
+  async function upload(file: File) {
+    setUploading(file.name);
+    setError(null);
+    try {
+      const result = await adminUploadFacts(userId, file.name, await file.text(), kind || undefined);
+      setOffset(0);
+      setReload((n) => n + 1);
+      setUploading(`${file.name} — ${result.chunks} chunk(s) stored`);
+      setTimeout(() => setUploading(null), 4000);
+    } catch (err) {
+      setUploading(null);
+      setError(err instanceof Error ? err.message : "upload failed");
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -87,8 +113,25 @@ export function MemoryTab({ users }: { users: AdminUser[] }) {
         </label>
 
         <span className="text-xs text-neutral-400">{total} facts</span>
+
+        <label className="ml-auto cursor-pointer rounded-xl border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700">
+          Upload .txt/.md
+          <input
+            type="file"
+            accept=".txt,.md,text/plain,text/markdown"
+            className="hidden"
+            disabled={!userId}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              // Reset the input so re-picking the same file fires again.
+              e.target.value = "";
+              if (file) void upload(file);
+            }}
+          />
+        </label>
       </div>
 
+      {uploading && <p className="text-xs text-neutral-400">{uploading}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       <div className="overflow-x-auto">

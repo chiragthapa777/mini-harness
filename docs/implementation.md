@@ -91,7 +91,8 @@ utils/                        http.ts (message/clampInt/parseDate), sse.ts (SSE 
 | GET | `/admin/users` | admin | list users |
 | POST | `/admin/users` | admin | create a user |
 | PATCH | `/admin/users/:id` | admin | change role and/or clear lockout |
-| GET | `/admin/facts` | admin | a user's semantic facts, paginated |
+| GET | `/admin/facts` | admin | a user's semantic facts, paginated (`includeArchived`) |
+| POST | `/admin/facts/upload` | admin | chunk a text file into a user's semantic memory |
 | GET | `/admin/traces` | admin | traces, filterable by user/model/error/date |
 | GET | `/admin/traces/:id` | admin | one trace, full detail incl. system prompt |
 | GET | `/admin/jobs` | admin | background jobs, filterable by status/type/user |
@@ -181,6 +182,16 @@ SDK imported lazily. Also owns embeddings (`embed`, `embedQuery`) for the vector
   no ranking). Every read path filters `archived_at IS NULL`. `writeFact` dedups exact
   repeats inline — consolidation re-derives the same sentence from overlapping batches,
   and touching `updated_at` records "seen again" without spending a row or an embedding.
+- **Document ingest** (`chunk.ts`, `ingest.ts`) — `chunkText` splits on the boundaries
+  the author already wrote (paragraph, then sentence, then a hard cut for a wall of text)
+  and overlaps consecutive chunks, because a fact stated across a boundary otherwise
+  belongs to neither chunk. `ingestDocument` writes one fact per chunk with
+  `source = file:<name>#<n>`, so a retrieved passage is traceable and re-uploading an
+  edited file lands on the same rows through `writeFact`'s exact-match dedup. Embeddings
+  are queued, not awaited — a 200-chunk upload would otherwise be 200 serial round-trips.
+  Files arrive as text in JSON (the browser reads .txt/.md itself), which keeps multipart
+  handling and temp-file lifecycles out of the server; a PDF would need a parser and can
+  arrive with one.
 - **Fact consolidation** (`dedupe.ts`) — near-duplicates need the vector, so they are a
   job. pgvector finds pairs under `FACT_DEDUPE_DISTANCE`, union-find turns pairs into
   clusters (transitively: A~B and B~C means all three describe one thing), and a cheap

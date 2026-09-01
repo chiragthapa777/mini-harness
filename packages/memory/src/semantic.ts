@@ -19,8 +19,9 @@ const ACTIVE = "archived_at IS NULL";
 
 /**
  * Semantic memory — durable facts, user profile, domain rules. Retrieval is
- * pure relevance: RAG top-k. Recency does not matter here, so without
- * embeddings the best we can do is hand back the newest facts.
+ * relevance first: RAG top-k, plus the handful of facts whose embeddings have
+ * not landed yet (see below). With no embeddings configured at all, the best
+ * we can do is hand back the newest facts.
  */
 export async function searchFacts(
   userId: string,
@@ -40,14 +41,33 @@ export async function searchFacts(
     );
   }
 
-  return query<Fact>(
-    `SELECT id::text, content, kind
-       FROM facts
-      WHERE user_id = $1 AND ${ACTIVE} AND embedding IS NOT NULL
-      ORDER BY embedding <=> $2::vector
-      LIMIT $3`,
-    [userId, toVector(vector), topK],
-  );
+  // A fact written seconds ago has no vector yet — its embed job is still in
+  // the queue — and a pure similarity search cannot see it at all. "Remember I
+  // prefer Neovim" being invisible for the next few minutes is exactly the
+  // failure a user notices, so the newest un-embedded facts ride along until
+  // their vectors land.
+  const [relevant, pending] = await Promise.all([
+    query<Fact>(
+      `SELECT id::text, content, kind
+         FROM facts
+        WHERE user_id = $1 AND ${ACTIVE} AND embedding IS NOT NULL
+        ORDER BY embedding <=> $2::vector
+        LIMIT $3`,
+      [userId, toVector(vector), topK],
+    ),
+    query<Fact>(
+      `SELECT id::text, content, kind
+         FROM facts
+        WHERE user_id = $1 AND ${ACTIVE} AND embedding IS NULL
+        ORDER BY updated_at DESC
+        LIMIT $2`,
+      [userId, Math.max(1, Math.ceil(topK / 2))],
+    ),
+  ]);
+
+  const byId = new Map(relevant.map((fact) => [fact.id, fact]));
+  for (const fact of pending) byId.set(fact.id, fact);
+  return [...byId.values()];
 }
 
 export interface AdminFact extends Fact {

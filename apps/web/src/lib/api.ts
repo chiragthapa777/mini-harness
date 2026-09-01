@@ -80,6 +80,21 @@ export const adminListFacts = (
     `/admin/facts?${qs({ userId, ...opts })}`,
   );
 
+/**
+ * The file is read in the browser and posted as text: .txt/.md is a string,
+ * and that keeps multipart handling out of the server for no loss.
+ */
+export const adminUploadFacts = (
+  userId: string,
+  filename: string,
+  content: string,
+  kind = "data_dictionary",
+) =>
+  json<{ filename: string; chunks: number; factIds: string[] }>("/admin/facts/upload", {
+    method: "POST",
+    body: JSON.stringify({ userId, filename, content, kind }),
+  });
+
 export interface AdminTrace {
   id: string;
   conversation_id: string | null;
