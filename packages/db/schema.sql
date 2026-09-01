@@ -108,3 +108,6 @@ CREATE TABLE IF NOT EXISTS traces (
 
 CREATE INDEX IF NOT EXISTS traces_recency_idx ON traces (created_at DESC);
 CREATE INDEX IF NOT EXISTS traces_errors_idx ON traces (created_at DESC) WHERE error IS NOT NULL;
+
+ALTER TABLE traces ADD COLUMN IF NOT EXISTS system_prompt text;
+
