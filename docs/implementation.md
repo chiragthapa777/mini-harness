@@ -263,11 +263,20 @@ job is a row with a terminal status, not a deleted one.
   (exponential backoff to `max_attempts`, then dead-letter), `reapStale` (a job still
   `running` past the stale window went down with its worker), plus the admin reads
   `listJobs` / `getJob` / `jobStats` / `retryJob`.
-- **`cron.ts`** — a five-field cron parser in UTC (`*`, `n`, `a-b`, lists, steps, and the
-  `@daily`-style aliases), written rather than depended on: the surface needed is "is
-  this valid" and "when next", and a schedule that quietly changes meaning after a
-  dependency bump is worse than one we can read. Day-of-month and day-of-week OR when
-  both are restricted, as in every other cron.
+- **`cron.ts`** — cron expression handling, in UTC, over `croner`. Three functions and
+  nothing else: `isValidCron`, `nextRun`, `nextRuns` (the last backs `/schedules/preview`).
+  Croner's `Cron` is also a live in-process scheduler; that is deliberately not
+  re-exported, because firing is the database's job — a `next_run_at` polled by
+  `scheduler.ts`, which survives a restart and stays correct with more than one worker.
+  Constructed with no callback, so nothing is ever scheduled and no `name`, so nothing
+  lands in croner's global job registry. Three options carry the semantics: `mode:
+  "5-part"` (6- and 7-field patterns are refused, so "every second" is unexpressible and
+  the finest schedule is one a minute), `timezone: "UTC"` (croner defaults to local time,
+  which would move a schedule's meaning with the server's TZ and with DST), and
+  `sloppyRanges: true` (keeps `5/10`-style numeric-prefix stepping working, as Vixie cron
+  and the hand-rolled parser this replaced both did). `isValidCron` also rejects
+  expressions that parse but never fire, like `0 0 30 2 *`. Day-of-month and day-of-week
+  OR when both are restricted, as in every other cron.
 - **`schedules.ts` / `scheduler.ts`** — `scheduled_jobs` holds both config-defined
   maintenance schedules (`kind = 'system'`, stable `key`, seeded on worker start —
   seeding updates name/cron but never `enabled`, so an admin's pause survives a deploy)

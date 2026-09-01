@@ -15,7 +15,7 @@ export {
 
 export { runJob, startWorker, type Worker, type WorkerLogger, type WorkerOptions } from "./worker.js";
 
-export { isValidCron, nextRun, parseCron } from "./cron.js";
+export { isValidCron, nextRun, nextRuns } from "./cron.js";
 
 export {
   startScheduler,

@@ -4,7 +4,7 @@ import {
   getSchedule,
   isValidCron,
   listSchedules,
-  nextRun,
+  nextRuns,
   updateSchedule,
 } from "@mini-agent/jobs";
 import { Router } from "express";
@@ -59,14 +59,7 @@ schedulesRoutes.get("/schedules/preview", (req, res) => {
     return;
   }
 
-  const runs: string[] = [];
-  let cursor = new Date();
-  for (let i = 0; i < 5; i++) {
-    const next = nextRun(expression, cursor);
-    if (!next) break;
-    runs.push(next.toISOString());
-    cursor = next;
-  }
+  const runs = nextRuns(expression, 5).map((run) => run.toISOString());
   res.json({ cron: expression, runs });
 });
 

@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@mini-agent/config": "workspace:*",
-    "@mini-agent/db": "workspace:*"
+    "@mini-agent/db": "workspace:*",
+    "croner": "^10.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

@@ -61,7 +61,16 @@ export async function tick(log: WorkerLogger = console): Promise<number> {
   let fired = 0;
 
   for (const schedule of due) {
-    const next = nextRun(schedule.cron, new Date());
+    // One unparseable row must not cost every other schedule its tick. That is
+    // reachable in practice: a stored expression only has to be invalid under
+    // the *current* grammar, and the grammar has changed before.
+    let next: Date | null;
+    try {
+      next = nextRun(schedule.cron, new Date());
+    } catch (err) {
+      log.error(`schedule ${schedule.name} has an invalid cron (${schedule.cron}) — skipped`, err);
+      continue;
+    }
 
     // Overlap guard: the previous run is still queued or running, so skip this
     // firing entirely rather than piling a second one on top of it.
