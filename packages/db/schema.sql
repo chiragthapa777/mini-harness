@@ -28,8 +28,20 @@ CREATE TABLE IF NOT EXISTS conversations (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id     text NOT NULL,
   title       text,
+  -- Rolling recap of the whole thread, under 200 words. This — not the raw
+  -- turns — is what episodic retrieval ranks, so it is a retrieval unit, not
+  -- an archive: regenerating rewrites it in place.
+  summary            text,
+  summary_updated_at timestamptz,
+  -- Watermark: the last message folded into `summary`. Anything newer is what
+  -- the next summarize job has to read.
+  summary_message_id bigint,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS summary text;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS summary_updated_at timestamptz;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS summary_message_id bigint;
 
 CREATE TABLE IF NOT EXISTS messages (
   id               bigserial PRIMARY KEY,
@@ -52,15 +64,28 @@ CREATE INDEX IF NOT EXISTS messages_unconsolidated_idx
 CREATE INDEX IF NOT EXISTS messages_embedding_idx
   ON messages USING hnsw (embedding vector_cosine_ops);
 
--- dated events, separate from chat turns
+-- Dated events — what episodic retrieval actually ranks. One row per
+-- conversation, holding that conversation's summary, upserted whenever the
+-- summary is regenerated. Ranking summaries instead of individual turns is
+-- what keeps one chatty thread from crowding out everything else.
 CREATE TABLE IF NOT EXISTS events (
-  id          bigserial PRIMARY KEY,
-  user_id     text NOT NULL,
-  summary     text NOT NULL,
-  occurred_at timestamptz NOT NULL,
-  embedding   vector(1536),
-  created_at  timestamptz NOT NULL DEFAULT now()
+  id              bigserial PRIMARY KEY,
+  user_id         text NOT NULL,
+  -- null for an event that came from somewhere other than a conversation
+  conversation_id uuid REFERENCES conversations(id) ON DELETE CASCADE,
+  summary         text NOT NULL,
+  occurred_at     timestamptz NOT NULL,
+  embedding       vector(1536),
+  created_at      timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE events ADD COLUMN IF NOT EXISTS conversation_id uuid
+  REFERENCES conversations(id) ON DELETE CASCADE;
+
+-- The upsert target: one event per conversation, so regenerating a summary
+-- updates the row instead of appending a near-duplicate.
+CREATE UNIQUE INDEX IF NOT EXISTS events_conversation_idx
+  ON events (conversation_id) WHERE conversation_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS events_recency_idx ON events (user_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS events_embedding_idx

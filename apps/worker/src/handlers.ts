@@ -1,9 +1,12 @@
 import { run } from "@mini-agent/agent";
 import type { JobRegistry } from "@mini-agent/jobs";
+import { enqueue } from "@mini-agent/jobs";
 import {
   backfillEmbeddings,
+  conversationsNeedingSummary,
   createConversation,
   embedRow,
+  summarizeConversation,
   titleFromFirstMessage,
 } from "@mini-agent/memory";
 import { logger } from "./logger.js";
@@ -25,6 +28,34 @@ export const handlers: JobRegistry = {
    */
   async embed_backfill({ limit }) {
     return backfillEmbeddings(limit);
+  },
+
+  /**
+   * Fold a conversation's new messages into its rolling summary, and upsert
+   * the episodic event that summary becomes.
+   */
+  async summarize_conversation({ conversationId }) {
+    return summarizeConversation(conversationId);
+  },
+
+  /**
+   * The five-minute sweep. Only conversations with messages past their
+   * watermark are enqueued, so an idle system does no model work at all.
+   */
+  async summarize_sweep({ limit }) {
+    const due = await conversationsNeedingSummary(limit ?? 50);
+    let enqueued = 0;
+
+    for (const conversation of due) {
+      const id = await enqueue(
+        "summarize_conversation",
+        { conversationId: conversation.id },
+        { userId: conversation.user_id, dedupeKey: `summarize:${conversation.id}` },
+      );
+      if (id) enqueued++;
+    }
+
+    return { due: due.length, enqueued };
   },
 
   /**

@@ -17,6 +17,18 @@ export {
 } from "./conversations.js";
 export { consolidate, type Summarizer } from "./consolidate.js";
 export {
+  conversationsNeedingSummary,
+  summarizeConversation,
+  type SummarizeResult,
+} from "./summaries.js";
+export { capWords, complete, summaryModel } from "./summarizer.js";
+export {
+  conversationSummaryPrompt,
+  FACT_EXTRACTION_PROMPT,
+  FACT_MERGE_PROMPT,
+  MEMORY_PROMPT_VERSION,
+} from "./prompts.js";
+export {
   backfillEmbeddings,
   embed,
   embeddingsConfigured,

@@ -68,6 +68,16 @@ const schema = z.object({
   CONSOLIDATE_AFTER_N_MESSAGES: numeric(20),
   SKILLS_DIR: str("skills"),
 
+  // Memory's own model calls — summaries, fact extraction, fact merging. A
+  // cheap model is enough; empty means "whatever the agent is using".
+  SUMMARY_PROVIDER: optionalStr,
+  SUMMARY_MODEL: optionalStr,
+  SUMMARY_MAX_TOKENS: numeric(1_000),
+  // Hard cap on a conversation summary. It is a retrieval unit, not an archive.
+  SUMMARY_MAX_WORDS: numeric(200),
+  // How many of a conversation's messages one summarize pass reads.
+  SUMMARY_MAX_MESSAGES: numeric(120),
+
   SEARCH_PROVIDER: z.enum(SEARCH_PROVIDERS).catch("duckduckgo"),
   SEARCH_MAX_RESULTS: numeric(5),
   SEARCH_TIMEOUT_MS: numeric(10_000),
@@ -131,6 +141,12 @@ export interface Config {
     episodicRecentLimit: number;
     consolidateAfterNMessages: number;
     skillsDir: string;
+    /** The model memory uses for its own summarizing. Defaults to the agent's. */
+    summaryProvider: AgentProvider;
+    summaryModel: string;
+    summaryMaxTokens: number;
+    summaryMaxWords: number;
+    summaryMaxMessages: number;
   };
   search: {
     provider: SearchProviderName;
@@ -209,6 +225,13 @@ export function getConfig(): Config {
       episodicRecentLimit: env.EPISODIC_RECENT_LIMIT,
       consolidateAfterNMessages: env.CONSOLIDATE_AFTER_N_MESSAGES,
       skillsDir: env.SKILLS_DIR,
+      summaryProvider: AGENT_PROVIDERS.includes(env.SUMMARY_PROVIDER as AgentProvider)
+        ? (env.SUMMARY_PROVIDER as AgentProvider)
+        : env.AGENT_PROVIDER,
+      summaryModel: env.SUMMARY_MODEL ?? env.AGENT_MODEL,
+      summaryMaxTokens: env.SUMMARY_MAX_TOKENS,
+      summaryMaxWords: env.SUMMARY_MAX_WORDS,
+      summaryMaxMessages: env.SUMMARY_MAX_MESSAGES,
     },
     search: {
       provider: env.SEARCH_PROVIDER,

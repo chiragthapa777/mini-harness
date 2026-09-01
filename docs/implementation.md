@@ -171,6 +171,15 @@ SDK imported lazily. Also owns embeddings (`embed`, `embedQuery`) for the vector
   in an app, because both the API and the worker need it.
 - **Episodic** (`episodic.ts`) — `messages` table. `recall` unions a recency query and a
   relevance query (RAG); `saveMessage` embeds and stores every turn.
+- **Summaries** (`summaries.ts`, `summarizer.ts`, `prompts.ts`) — each conversation
+  carries a rolling recap under 200 words (`conversations.summary`), driven off a
+  watermark (`summary_message_id`): a job reads the messages past it, rewrites the
+  summary in place, and moves it. That recap is upserted as the conversation's row in
+  `events` — one per conversation, so regenerating updates rather than appends, and the
+  stale vector is cleared and re-queued. Nothing new past the watermark means no model
+  call, so a duplicate job is free and an idle system costs nothing. Memory's prompts
+  live in `prompts.ts` with their own `MEMORY_PROMPT_VERSION`; its model is
+  `SUMMARY_MODEL` (defaulting to the agent's).
 - **Consolidation** (`consolidate.ts`) — gate (only run past N unconsolidated messages),
   `Summarizer` interface, writes distilled facts, marks messages consolidated. **Nobody
   calls `consolidate()` and no `Summarizer` is implemented** — episodic memory grows
@@ -227,9 +236,9 @@ Schema (`schema.sql`, applied on first boot of an empty Postgres volume):
 | Table | Purpose |
 |---|---|
 | `users` | auth — email, password hash, role, lockout state |
-| `conversations` | one row per chat thread |
+| `conversations` | one row per chat thread, plus its rolling summary and watermark |
 | `messages` | episodic log — role, content, embedding, `consolidated_at` |
-| `events` | dated events, separate from chat turns (defined, not yet written to by any code path) |
+| `events` | dated events — one per conversation, holding that conversation's summary; what episodic RAG ranks |
 | `facts` | semantic memory — kind, content, embedding, source |
 | `traces` | one row per agent run — tokens, latency, stop reason, steps (jsonb), system prompt |
 | `jobs` | background work — type, payload, status, attempts, backoff schedule, dedupe key, result |

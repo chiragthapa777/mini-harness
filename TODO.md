@@ -55,7 +55,7 @@ consolidation) onto it, then wire what that produces back into the run loop.
   - one generic `embed_row` job type — `{ table, id }` for `messages` / `facts` / `events` — not three handlers
   - claim/retry comes from #4; add a backfill sweep that re-enqueues rows still `NULL` past some age, so a job lost before #4's retry policy existed doesn't leave a permanent hole
 
-- [ ] 8. episodic dated events from conversation summaries, not raw messages
+- [x] 8. episodic dated events from conversation summaries, not raw messages
   - depends on #4, #6, #7
   - today `recall()` (packages/memory/src/episodic.ts) reads `messages` directly — SQL recency + per-message embedding similarity — so retrieval competes against every individual turn, and the `events` table (packages/db/schema.sql) has **zero** readers or writers anywhere in the repo
   - each conversation gets a rolling short summary: new `summary` text column on `conversations`, plus `summary_updated_at` and `summary_message_id` (watermark = last message folded in)
