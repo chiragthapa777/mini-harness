@@ -124,12 +124,13 @@ export function TracesTab({ users }: { users: AdminUser[] }) {
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[800px] text-left text-sm">
+        <table className="w-full min-w-[960px] text-left text-sm">
           <thead className="text-neutral-400">
             <tr>
               <th className="py-1 pr-4 font-medium">When</th>
               <th className="py-1 pr-4 font-medium">User</th>
               <th className="py-1 pr-4 font-medium">Model</th>
+              <th className="py-1 pr-4 font-medium">System Prompt</th>
               <th className="py-1 pr-4 font-medium">Iter</th>
               <th className="py-1 pr-4 font-medium">Tokens</th>
               <th className="py-1 pr-4 font-medium">Latency</th>
@@ -148,7 +149,7 @@ export function TracesTab({ users }: { users: AdminUser[] }) {
             ))}
             {!loading && traces.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-neutral-400">
+                <td colSpan={8} className="py-6 text-center text-neutral-400">
                   No traces match these filters.
                 </td>
               </tr>
@@ -184,6 +185,9 @@ function TraceRow({
         </td>
         <td className="py-1.5 pr-4">{email}</td>
         <td className="py-1.5 pr-4 font-mono text-xs">{trace.model}</td>
+        <td className="max-w-55 truncate py-1.5 pr-4 text-neutral-400" title={trace.system_prompt ?? undefined}>
+          {trace.system_prompt ?? "—"}
+        </td>
         <td className="py-1.5 pr-4">{trace.iterations}</td>
         <td className="py-1.5 pr-4 whitespace-nowrap">
           {trace.input_tokens}↑ {trace.output_tokens}↓
@@ -203,7 +207,7 @@ function TraceRow({
       </tr>
       {open && (
         <tr className="border-t border-neutral-200 dark:border-neutral-800">
-          <td colSpan={7} className="bg-neutral-50 px-3 py-3 dark:bg-neutral-900/60">
+          <td colSpan={8} className="bg-neutral-50 px-3 py-3 dark:bg-neutral-900/60">
             <TraceDetail id={trace.id} />
           </td>
         </tr>

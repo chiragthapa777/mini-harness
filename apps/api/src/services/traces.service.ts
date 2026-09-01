@@ -6,6 +6,7 @@ export interface TraceRow {
   user_id: string;
   model: string;
   prompt_version: string | null;
+  system_prompt: string | null;
   iterations: number;
   input_tokens: number;
   output_tokens: number;
@@ -16,7 +17,6 @@ export interface TraceRow {
 }
 
 export interface TraceDetailRow extends TraceRow {
-  system_prompt: string | null;
   steps: unknown;
 }
 
@@ -31,7 +31,8 @@ export interface TraceFilters {
 }
 
 const TRACE_COLUMNS = `id::text, conversation_id::text, user_id, model, prompt_version,
-  iterations, input_tokens, output_tokens, latency_ms, stop_reason, error, created_at`;
+  system_prompt, iterations, input_tokens, output_tokens, latency_ms, stop_reason, error,
+  created_at`;
 
 /**
  * LLM Ops listing — filtered, paginated view over every trace. Filters are
@@ -62,7 +63,7 @@ export async function listTraces(
 
 export async function getTrace(id: string): Promise<TraceDetailRow | undefined> {
   const [row] = await query<TraceDetailRow>(
-    `SELECT ${TRACE_COLUMNS}, system_prompt, steps FROM traces WHERE id = $1`,
+    `SELECT ${TRACE_COLUMNS}, steps FROM traces WHERE id = $1`,
     [id],
   );
   return row;

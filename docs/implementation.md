@@ -34,8 +34,10 @@ run actually works step by step (the loop, tool calls, working memory), see
 
 - **Routing** (`src/App.tsx`): `/login` (public), everything else behind `RequireAuth`,
   `/admin` additionally behind `RequireAdmin`. Chat lives at `/` and `/c/:id`; response
-  mode is the query param `?mode=stream`, not a separate path (`src/pages/Chat.tsx`
-  picks `ChatClassic` vs `ChatStream` from it).
+  mode is the query param `?mode=classic`, not a separate path — streaming is the
+  default with no param (`src/pages/Chat.tsx` picks `ChatClassic` vs `ChatStream` from it).
+  Empty conversations show a centered greeting + composer; once a turn exists it drops
+  into the normal scrollable-history-plus-bottom-composer layout.
 - **Chat — two paths, one contract:**
   - `ChatClassic` (`src/pages/ChatClassic.tsx`) — `POST /chat`, waits for the full reply.
   - `ChatStream` (`src/pages/ChatStream.tsx`) — `POST /chat/stream`, consumes an SSE
@@ -53,8 +55,9 @@ run actually works step by step (the loop, tool calls, working memory), see
   `src/components/admin/`:
   - `UsersTab` — list/create users, change role, clear a lockout.
   - `MemoryTab` — browse any user's semantic facts (admin-only).
-  - `TracesTab` — filter/browse traces by user, model, error status, date range; detail
-    view includes per-step tool calls and the full assembled system prompt for that run.
+  - `TracesTab` — filter/browse traces by user, model, error status, date range; the list
+    itself shows a truncated system prompt per row, the expanded detail view has the
+    full assembled system prompt plus per-step tool calls for that run.
 
 ### 2.2 `apps/api` — Express
 

@@ -84,6 +84,7 @@ export interface AdminTrace {
   user_id: string;
   model: string;
   prompt_version: string | null;
+  system_prompt: string | null;
   iterations: number;
   input_tokens: number;
   output_tokens: number;
@@ -94,7 +95,6 @@ export interface AdminTrace {
 }
 
 export interface AdminTraceDetail extends AdminTrace {
-  system_prompt: string | null;
   steps: Trace["steps"];
 }
 

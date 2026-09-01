@@ -35,34 +35,39 @@ export function Composer({ busy, onSend, onStop, placeholder }: Props) {
   }
 
   return (
-    <form onSubmit={submit} className="flex items-end gap-2">
+    <form
+      onSubmit={submit}
+      className="rounded-2xl border border-neutral-300 bg-white focus-within:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:focus-within:border-neutral-600"
+    >
       <textarea
         ref={ref}
         rows={1}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder={placeholder ?? "Send a message…"}
+        placeholder={placeholder ?? "How can I help you today?"}
         title={placeholder ?? "Send a message… (Enter to send, Shift+Enter for a new line)"}
-        className="flex-1 resize-none rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900"
+        className="w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-sm outline-none placeholder:text-neutral-400"
       />
-      {busy && onStop ? (
-        <button
-          type="button"
-          onClick={onStop}
-          className="rounded-xl border border-neutral-300 px-4 py-3 text-sm font-medium hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
-        >
-          Stop
-        </button>
-      ) : (
-        <button
-          type="submit"
-          disabled={busy || !value.trim()}
-          className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-medium text-white disabled:opacity-40"
-        >
-          Send
-        </button>
-      )}
+      <div className="flex items-center justify-end px-3 pb-2.5">
+        {busy && onStop ? (
+          <button
+            type="button"
+            onClick={onStop}
+            className="rounded-lg border border-neutral-300 px-3.5 py-1.5 text-sm font-medium hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+          >
+            Stop
+          </button>
+        ) : (
+          <button
+            type="submit"
+            disabled={busy || !value.trim()}
+            className="rounded-lg bg-blue-600 px-3.5 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+          >
+            Send
+          </button>
+        )}
+      </div>
     </form>
   );
 }

@@ -10,8 +10,8 @@ type Mode = "classic" | "stream";
  */
 export function ChatMenu({ mode, conversationId }: { mode: Mode; conversationId?: string }) {
   const [open, setOpen] = useState(false);
-  const classicHref = conversationId ? `/c/${conversationId}` : "/";
-  const streamHref = conversationId ? `/c/${conversationId}?mode=stream` : "/?mode=stream";
+  const classicHref = conversationId ? `/c/${conversationId}?mode=classic` : "/?mode=classic";
+  const streamHref = conversationId ? `/c/${conversationId}` : "/";
 
   return (
     <div className="relative ml-auto shrink-0">

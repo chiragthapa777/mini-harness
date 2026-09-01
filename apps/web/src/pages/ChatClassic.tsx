@@ -53,7 +53,7 @@ export function ChatClassic() {
       ]);
       if (!id) {
         ownNavigation.current = result.conversationId;
-        navigate(`/c/${result.conversationId}`, { replace: true });
+        navigate(`/c/${result.conversationId}?mode=classic`, { replace: true });
       }
     } catch (err) {
       setTurns((prev) => [
@@ -80,22 +80,30 @@ export function ChatClassic() {
         <ChatMenu mode="classic" conversationId={id} />
       </header>
 
-      <div className="flex-1 space-y-5 overflow-y-auto px-3 py-6 sm:px-6">
-        {turns.length === 0 && (
-          <p className="mt-20 text-center text-sm text-neutral-400">
-            Ask something to start this conversation.
-          </p>
-        )}
-        {turns.map((turn, i) => (
-          <Message key={i} turn={turn} />
-        ))}
-        {busy && <p className="text-sm text-neutral-400">Thinking…</p>}
-        <div ref={bottom} />
-      </div>
+      {turns.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 pb-[max(2rem,env(safe-area-inset-bottom))]">
+          <h1 className="font-serif text-3xl text-neutral-700 sm:text-4xl dark:text-neutral-300">
+            What can I help with?
+          </h1>
+          <div className="w-full max-w-2xl">
+            <Composer busy={busy} onSend={(p) => void send(p)} />
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex-1 space-y-5 overflow-y-auto px-3 py-6 sm:px-6">
+            {turns.map((turn, i) => (
+              <Message key={i} turn={turn} />
+            ))}
+            {busy && <p className="text-sm text-neutral-400">Thinking…</p>}
+            <div ref={bottom} />
+          </div>
 
-      <div className="border-t border-neutral-200 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 dark:border-neutral-800">
-        <Composer busy={busy} onSend={(p) => void send(p)} />
-      </div>
+          <div className="border-t border-neutral-200 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 dark:border-neutral-800">
+            <Composer busy={busy} onSend={(p) => void send(p)} />
+          </div>
+        </>
+      )}
     </>
   );
 }
