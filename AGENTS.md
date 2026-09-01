@@ -9,6 +9,9 @@ those pieces live in.
 Implementation: [docs/implementation.md](docs/implementation.md) — what is actually built
 today (endpoints, schema, packages, gaps), as opposed to architecture.md's plan.
 
+Agent run walk-through: [docs/agent-run.md](docs/agent-run.md) — how one run works end to
+end (working memory, the loop, tool calls, persistence), with file references.
+
 ## Tech stack — do not add alternatives
 
 | Concern | Choice |

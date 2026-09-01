@@ -3,7 +3,11 @@
 A mini harness usable as your personal AI agent. Monorepo: web app + API server on
 top of a shared harness core (agentic loop, memory, tools).
 
-Architecture details: [docs/architecture.md](docs/architecture.md).
+Docs:
+
+- [docs/architecture.md](docs/architecture.md) — the planned system shape (diagram + rationale)
+- [docs/implementation.md](docs/implementation.md) — what's actually built: endpoints, schema, packages, gaps
+- [docs/agent-run.md](docs/agent-run.md) — how one run works end to end: working memory, the loop, tool calls, persistence
 
 ## Stack
 

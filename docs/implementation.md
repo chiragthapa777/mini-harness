@@ -5,7 +5,9 @@ This is the other half: what actually exists in the repo today, file by file, so
 picking up the project can tell shipped from planned without reading every source file.
 
 For the punch list of what's *not* built yet, see [`TODO.md`](../TODO.md) — items 4–13
-there are gaps found by comparing this doc against `docs/architecture.md`.
+there are gaps found by comparing this doc against `docs/architecture.md`. For how one
+run actually works step by step (the loop, tool calls, working memory), see
+[`docs/agent-run.md`](agent-run.md).
 
 ---
 
