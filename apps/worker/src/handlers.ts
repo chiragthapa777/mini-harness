@@ -3,11 +3,13 @@ import type { JobRegistry } from "@mini-agent/jobs";
 import { enqueue } from "@mini-agent/jobs";
 import {
   backfillEmbeddings,
+  consolidate,
   conversationsNeedingSummary,
   createConversation,
   embedRow,
   summarizeConversation,
   titleFromFirstMessage,
+  usersNeedingConsolidation,
 } from "@mini-agent/memory";
 import { logger } from "./logger.js";
 
@@ -51,6 +53,32 @@ export const handlers: JobRegistry = {
         "summarize_conversation",
         { conversationId: conversation.id },
         { userId: conversation.user_id, dedupeKey: `summarize:${conversation.id}` },
+      );
+      if (id) enqueued++;
+    }
+
+    return { due: due.length, enqueued };
+  },
+
+  /**
+   * Distil one user's unconsolidated messages into durable facts. The gate
+   * inside `consolidate` means an under-quota user is a no-op, so this is safe
+   * to enqueue speculatively.
+   */
+  async consolidate_user({ userId }) {
+    return consolidate(userId);
+  },
+
+  /** Sweep: only users already past the batch gate are enqueued. */
+  async consolidate_sweep({ limit }) {
+    const due = await usersNeedingConsolidation(undefined, limit ?? 50);
+    let enqueued = 0;
+
+    for (const user of due) {
+      const id = await enqueue(
+        "consolidate_user",
+        { userId: user.user_id },
+        { userId: user.user_id, dedupeKey: `consolidate:${user.user_id}` },
       );
       if (id) enqueued++;
     }

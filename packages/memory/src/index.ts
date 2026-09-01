@@ -18,7 +18,12 @@ export {
   titleFromFirstMessage,
   type ConversationRow,
 } from "./conversations.js";
-export { consolidate, type Summarizer } from "./consolidate.js";
+export {
+  consolidate,
+  extractFacts,
+  usersNeedingConsolidation,
+  type Summarizer,
+} from "./consolidate.js";
 export {
   conversationsNeedingSummary,
   summarizeConversation,

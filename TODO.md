@@ -73,7 +73,7 @@ consolidation) onto it, then wire what that produces back into the run loop.
   - the `recall_memory` tool (apps/api/src/services/tools.service.ts:39) hits the same `recall()`, so it inherits the change — check its output still reads sensibly when episodes are summaries
   - bump `PROMPT_VERSION` (packages/core/src/config.ts) with the prompt-shape change so traces before/after are distinguishable
 
-- [ ] 10. consolidation + fact extraction job for semantic memory
+- [x] 10. consolidation + fact extraction job for semantic memory
   - depends on #4, #6; supersedes the old "wire up memory consolidation" item
   - `consolidate()` (packages/memory/src/consolidate.ts) is fully written — gate, `writeFact`, `markConsolidated` — but has **zero callers** anywhere in the repo, and no `Summarizer` implementation exists to pass it
   - build the `Summarizer`: a cheap-model call that turns `StoredMessage[]` into fact strings; same LLM plumbing as #8's conversation summarizer, different prompt (durable facts vs. narrative recap)

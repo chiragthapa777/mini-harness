@@ -19,7 +19,7 @@ run actually works step by step (the loop, tool calls, working memory), see
 | Gateway — TUI, WhatsApp/Telegram bot | Not built (TODO 13, 18) |
 | Agentic loop, tool protocol, guardrails | Built (`packages/core`) |
 | Procedural / semantic / episodic memory | Built (`packages/memory`) |
-| Memory consolidation (episodic → semantic) | Code exists, **not wired to anything** — no caller, no `Summarizer` (TODO 10) |
+| Memory consolidation (episodic → semantic) | Built — `extractFacts` + `consolidate_user` job on a schedule |
 | LLM Ops — trace | Built (per-run trace, admin Traces tab) |
 | LLM Ops — eval / observe / diagnose / gate / release | Not built (TODO 15) |
 | Background job runner (queue + worker) | Built (`packages/jobs`, `apps/worker`) |
@@ -189,10 +189,13 @@ SDK imported lazily. Also owns embeddings (`embed`, `embedQuery`) for the vector
   call, so a duplicate job is free and an idle system costs nothing. Memory's prompts
   live in `prompts.ts` with their own `MEMORY_PROMPT_VERSION`; its model is
   `SUMMARY_MODEL` (defaulting to the agent's).
-- **Consolidation** (`consolidate.ts`) — gate (only run past N unconsolidated messages),
-  `Summarizer` interface, writes distilled facts, marks messages consolidated. **Nobody
-  calls `consolidate()` and no `Summarizer` is implemented** — episodic memory grows
-  forever today; semantic memory only grows from the agent's own `remember` tool.
+- **Consolidation** (`consolidate.ts`) — the gate (only past N unconsolidated messages),
+  plus `extractFacts`, the default `Summarizer`: one model call returning one fact per
+  line. Line-per-fact rather than JSON because a malformed line costs one fact instead of
+  the batch, and cheap models are better at it. Messages are marked consolidated only
+  after their facts are written, so a half-finished pass redoes the batch rather than
+  losing it. `usersNeedingConsolidation` puts the same gate in SQL so the sweep enqueues
+  only work that will do something.
 
 ### 3.4 `packages/jobs` — the queue
 
