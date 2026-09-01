@@ -6,5 +6,5 @@
  * moved here rather than being copied: anything imported by more than one app
  * belongs in `packages/`.
  */
-export { run, runStream, type RunRequest } from "./run.js";
+export { run, runStream, type PersistedRun, type RunRequest } from "./run.js";
 export { toolsFor } from "./tools.js";

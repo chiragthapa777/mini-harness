@@ -25,6 +25,8 @@ export const handlers: JobRegistry = {
 
     return {
       conversationId: target,
+      // The admin panel uses this to get from a job straight to its run.
+      traceId: result.traceId,
       stopReason: result.trace.stopReason,
       iterations: result.trace.iterations,
       replyPreview: result.reply.slice(0, 280),

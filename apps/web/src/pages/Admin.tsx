@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
+import { JobsTab } from "../components/admin/JobsTab.js";
 import { MemoryTab } from "../components/admin/MemoryTab.js";
 import { TracesTab } from "../components/admin/TracesTab.js";
 import { UsersTab } from "../components/admin/UsersTab.js";
@@ -11,11 +12,12 @@ const TABS = [
   { id: "users", label: "Users" },
   { id: "memory", label: "Memory" },
   { id: "traces", label: "Traces" },
+  { id: "jobs", label: "Jobs" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
 
-/** Admin-only: manage accounts, inspect a user's semantic memory, and monitor traces. */
+/** Admin-only: manage accounts, inspect a user's semantic memory, and monitor traces and background jobs. */
 export function Admin() {
   const { toggleSidebar } = useOutletContext<LayoutContext>();
   const [tab, setTab] = useState<TabId>("users");
@@ -54,6 +56,7 @@ export function Admin() {
         {tab === "users" && <UsersTab users={users} onRefresh={refreshUsers} />}
         {tab === "memory" && <MemoryTab users={users} />}
         {tab === "traces" && <TracesTab users={users} />}
+        {tab === "jobs" && <JobsTab users={users} />}
       </div>
     </>
   );

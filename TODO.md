@@ -32,7 +32,7 @@ consolidation) onto it, then wire what that produces back into the run loop.
   - worker entrypoint: new `apps/worker` (or a mode flag on apps/api) that polls, claims, dispatches, and can run the agent loop per job — `runLoop` (packages/core/src/loop.ts) already returns a plain `RunResult`, reusable outside Express
   - a job that runs the agent loop still writes a trace (services/traces.service.ts); `traces.conversation_id` is already nullable for a job with no chat behind it. A job that only embeds writes no trace — keep `jobs` and `traces` separate, linked by id where both exist
 
-- [ ] 5. admin panel for background jobs
+- [x] 5. admin panel for background jobs
   - depends on #4
   - `GET /admin/jobs` with status/type/user filters + pagination, and a retry/requeue action (apps/api/src/routes/admin.routes.ts, admin-only like the existing facts route)
   - new `JobsTab` (apps/web/src/components/admin/, alongside MemoryTab/TracesTab/UsersTab, registered in apps/web/src/pages/Admin.tsx) — queue depth by status, recent failures, per-job payload/attempts/last_error

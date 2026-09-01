@@ -1,3 +1,4 @@
+import { getJob, jobStats, listJobs, retryJob } from "@mini-agent/jobs";
 import { listFacts } from "@mini-agent/memory";
 import { Router } from "express";
 import { z } from "zod";
@@ -138,4 +139,67 @@ adminRoutes.get("/admin/traces/:id", async (req, res) => {
     return;
   }
   res.json(trace);
+});
+
+// -------------------------------------------------------------------- jobs
+
+const JOB_STATUSES = ["queued", "running", "succeeded", "failed"] as const;
+
+/** Queue depth by status and type — read before the listing, so it stays cheap. */
+adminRoutes.get("/admin/jobs/stats", async (_req, res) => {
+  try {
+    res.json(await jobStats());
+  } catch (err) {
+    logger.error("admin job stats failed", err);
+    res.status(500).json({ error: message(err) });
+  }
+});
+
+// Background work — the same rows the worker claims from, read-only here.
+adminRoutes.get("/admin/jobs", async (req, res) => {
+  const q = req.query;
+  const status = JOB_STATUSES.find((s) => s === q.status);
+
+  try {
+    res.json(
+      await listJobs({
+        status,
+        type: typeof q.type === "string" && q.type ? q.type : undefined,
+        userId: typeof q.userId === "string" && q.userId ? q.userId : undefined,
+        limit: clampInt(q.limit, 50, 1, 200),
+        offset: clampInt(q.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+      }),
+    );
+  } catch (err) {
+    logger.error("admin list jobs failed", err);
+    res.status(500).json({ error: message(err) });
+  }
+});
+
+adminRoutes.get("/admin/jobs/:id", async (req, res) => {
+  const job = await getJob(String(req.params.id));
+  if (!job) {
+    res.status(404).json({ error: "job not found" });
+    return;
+  }
+  res.json(job);
+});
+
+/**
+ * Requeue a finished job by hand — the fix for a dead-lettered job once
+ * whatever broke it (a missing key, a provider outage) has been sorted out.
+ * Attempts reset, so it gets the full retry budget again.
+ */
+adminRoutes.post("/admin/jobs/:id/retry", async (req, res) => {
+  try {
+    const job = await retryJob(String(req.params.id));
+    if (!job) {
+      res.status(409).json({ error: "only a finished job can be retried" });
+      return;
+    }
+    res.json(job);
+  } catch (err) {
+    logger.error("admin retry job failed", err);
+    res.status(500).json({ error: message(err) });
+  }
 });

@@ -239,7 +239,8 @@ function SystemPromptView({ value }: { value: string }) {
   );
 }
 
-function TraceDetail({ id }: { id: string }) {
+/** Shared with the Jobs tab: a job that ran the agent loop links to its trace. */
+export function TraceDetail({ id }: { id: string }) {
   const [detail, setDetail] = useState<AdminTraceDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 

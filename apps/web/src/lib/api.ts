@@ -112,6 +112,42 @@ export const adminListTraces = (
 
 export const adminGetTrace = (id: string) => json<AdminTraceDetail>(`/admin/traces/${id}`);
 
+export type JobStatus = "queued" | "running" | "succeeded" | "failed";
+
+export interface AdminJob {
+  id: string;
+  type: string;
+  user_id: string | null;
+  payload: unknown;
+  status: JobStatus;
+  attempts: number;
+  max_attempts: number;
+  last_error: string | null;
+  dedupe_key: string | null;
+  result: unknown;
+  scheduled_for: string;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const adminListJobs = (
+  filters: {
+    status?: JobStatus;
+    type?: string;
+    userId?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+) => json<{ jobs: AdminJob[]; total: number }>(`/admin/jobs?${qs(filters)}`);
+
+export const adminJobStats = () =>
+  json<{ status: JobStatus; type: string; count: number }[]>("/admin/jobs/stats");
+
+export const adminRetryJob = (id: string) =>
+  json<AdminJob>(`/admin/jobs/${id}/retry`, { method: "POST" });
+
 function qs(params: Record<string, string | number | boolean | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {

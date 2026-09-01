@@ -20,16 +20,35 @@ export interface RunRequest {
 }
 
 /**
+ * The run plus the id of the trace it wrote. A job that ran unattended has no
+ * browser to show a trace to, so it hands the id back instead — that is what
+ * lets the admin panel get from a failed job to the run behind it.
+ */
+export interface PersistedRun extends RunResult {
+  traceId: string;
+}
+
+/**
  * One agent run: assemble working memory, run the loop, persist the reply to
  * episodic memory, and emit exactly one trace. Everything the loop held in
  * memory is discarded when this returns — only the stores and the trace survive.
  */
-export async function run({ userId, conversationId, prompt }: RunRequest): Promise<RunResult> {
+export async function run({
+  userId,
+  conversationId,
+  prompt,
+}: RunRequest): Promise<PersistedRun> {
   const wm = await workingMemory(userId, prompt);
   const result = await runAgent(wm, toolsFor(userId), runConfig());
 
-  await persist({ userId, conversationId, prompt, reply: result.reply, trace: result.trace });
-  return result;
+  const traceId = await persist({
+    userId,
+    conversationId,
+    prompt,
+    reply: result.reply,
+    trace: result.trace,
+  });
+  return { ...result, traceId };
 }
 
 /**
@@ -82,22 +101,23 @@ async function persist({
   prompt,
   reply,
   trace,
-}: RunRequest & { reply: string; trace: Trace }): Promise<void> {
+}: RunRequest & { reply: string; trace: Trace }): Promise<string> {
   await saveMessage(conversationId, userId, "user", prompt);
   if (reply) await saveMessage(conversationId, userId, "assistant", reply);
-  await saveTrace(userId, conversationId, trace);
+  return saveTrace(userId, conversationId, trace);
 }
 
 async function saveTrace(
   userId: string,
   conversationId: string,
   trace: Trace,
-): Promise<void> {
-  await query(
+): Promise<string> {
+  const [row] = await query<{ id: string }>(
     `INSERT INTO traces (conversation_id, user_id, model, prompt_version, system_prompt,
                          iterations, input_tokens, output_tokens, latency_ms, stop_reason,
                          error, steps)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+     RETURNING id::text`,
     [
       conversationId,
       userId,
@@ -113,4 +133,6 @@ async function saveTrace(
       JSON.stringify(trace.steps),
     ],
   );
+  if (!row) throw new Error("failed to persist trace");
+  return row.id;
 }

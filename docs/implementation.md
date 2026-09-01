@@ -15,7 +15,7 @@ run actually works step by step (the loop, tool calls, working memory), see
 
 | Layer (from architecture.md) | State |
 |---|---|
-| Gateway — web app | Built (`apps/web`) |
+| Gateway — web app | Built (`apps/web`), admin dashboard incl. job monitoring |
 | Gateway — TUI, WhatsApp/Telegram bot | Not built (TODO 13, 18) |
 | Agentic loop, tool protocol, guardrails | Built (`packages/core`) |
 | Procedural / semantic / episodic memory | Built (`packages/memory`) |
@@ -59,6 +59,10 @@ run actually works step by step (the loop, tool calls, working memory), see
   - `TracesTab` — filter/browse traces by user, model, error status, date range; the list
     itself shows a truncated system prompt per row, the expanded detail view has the
     full assembled system prompt plus per-step tool calls for that run.
+  - `JobsTab` — queue depth by status, filter by status/type/user, expand a job for its
+    payload, result, timings and error, retry a dead-lettered one. Polls every 5s
+    (a queue is only useful live). A job that ran the agent loop stores its `traceId`,
+    so the row expands straight into the shared `TraceDetail` view.
 
 ### 2.2 `apps/api` — Express
 
@@ -87,6 +91,10 @@ utils/                        http.ts (message/clampInt/parseDate), sse.ts (SSE 
 | GET | `/admin/facts` | admin | a user's semantic facts, paginated |
 | GET | `/admin/traces` | admin | traces, filterable by user/model/error/date |
 | GET | `/admin/traces/:id` | admin | one trace, full detail incl. system prompt |
+| GET | `/admin/jobs` | admin | background jobs, filterable by status/type/user |
+| GET | `/admin/jobs/stats` | admin | queue depth by status and type |
+| GET | `/admin/jobs/:id` | admin | one job |
+| POST | `/admin/jobs/:id/retry` | admin | requeue a finished job (409 if still live) |
 | GET | `/conversations` | user | own conversations |
 | POST | `/conversations` | user | create one |
 | GET | `/conversations/:id/messages` | user | messages in one (own only) |
