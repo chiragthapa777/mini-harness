@@ -269,6 +269,9 @@ importers:
       '@mini-agent/db':
         specifier: workspace:*
         version: link:../db
+      '@mini-agent/jobs':
+        specifier: workspace:*
+        version: link:../jobs
       '@mini-agent/llm':
         specifier: workspace:*
         version: link:../llm
@@ -276,6 +279,9 @@ importers:
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

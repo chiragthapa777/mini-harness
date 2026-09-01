@@ -9,15 +9,18 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@mini-agent/config": "workspace:*",
     "@mini-agent/db": "workspace:*",
+    "@mini-agent/jobs": "workspace:*",
     "@mini-agent/llm": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.2"
   }
 }

@@ -1,6 +1,11 @@
 import { run } from "@mini-agent/agent";
 import type { JobRegistry } from "@mini-agent/jobs";
-import { createConversation, titleFromFirstMessage } from "@mini-agent/memory";
+import {
+  backfillEmbeddings,
+  createConversation,
+  embedRow,
+  titleFromFirstMessage,
+} from "@mini-agent/memory";
 import { logger } from "./logger.js";
 
 /**
@@ -9,6 +14,19 @@ import { logger } from "./logger.js";
  * scheduled run and a browser run.
  */
 export const handlers: JobRegistry = {
+  /** Fill in one row's embedding — the async half of every write to a vector table. */
+  async embed_row({ table, id }) {
+    return embedRow(table, id);
+  },
+
+  /**
+   * Safety net: rows whose embed job was lost (worker killed before the retry
+   * policy applied, or written while no worker was up) get re-enqueued.
+   */
+  async embed_backfill({ limit }) {
+    return backfillEmbeddings(limit);
+  },
+
   /**
    * A full agent run with nobody watching. It persists exactly like a chat
    * turn — same episodic write, same trace — so scheduled work shows up in the

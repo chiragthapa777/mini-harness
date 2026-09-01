@@ -47,7 +47,7 @@ consolidation) onto it, then wire what that produces back into the run loop.
   - overlap guard: a schedule must not enqueue a second job while its previous one is still `queued`/`running`
   - API: CRUD routes (apps/api/src/routes/jobs.routes.ts) + web UI to add/edit/pause a user schedule
 
-- [ ] 7. move embedding off the request path into a background job
+- [x] 7. move embedding off the request path into a background job
   - depends on #4
   - today `saveMessage` (packages/memory/src/episodic.ts) and `writeFact` (packages/memory/src/semantic.ts) both `await embed(content)` before their INSERT, so every chat turn pays an embedding round-trip inline and holds the request open
   - insert with `embedding IS NULL` immediately, enqueue an `embed_row` job, backfill the column when it runs

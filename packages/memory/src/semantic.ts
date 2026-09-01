@@ -1,6 +1,6 @@
 import { getConfig } from "@mini-agent/config";
 import { query, toVector } from "@mini-agent/db";
-import { embed } from "./embeddings.js";
+import { embed, scheduleEmbedding } from "./embeddings.js";
 
 const TOP_K = getConfig().memory.ragTopK;
 
@@ -82,17 +82,25 @@ export async function listFacts(
   return { facts, total: Number(countRows[0]?.count ?? 0) };
 }
 
-/** Written by the summarizer agent, never by the run loop. */
+/**
+ * Written by the summarizer agent and the agent's own `remember` tool, never by
+ * the run loop itself. Like `saveMessage`, the embedding is filled in by a job
+ * rather than on the caller's clock.
+ */
 export async function writeFact(
   userId: string,
   content: string,
   kind: Fact["kind"] = "fact",
   source?: string,
-): Promise<void> {
-  const vector = await embed(content);
-  await query(
-    `INSERT INTO facts (user_id, kind, content, source, embedding)
-     VALUES ($1, $2, $3, $4, $5::vector)`,
-    [userId, kind, content, source ?? null, vector ? toVector(vector) : null],
+): Promise<string> {
+  const [row] = await query<{ id: string }>(
+    `INSERT INTO facts (user_id, kind, content, source)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id::text`,
+    [userId, kind, content, source ?? null],
   );
+  if (!row) throw new Error("failed to write fact");
+
+  await scheduleEmbedding("facts", row.id);
+  return row.id;
 }

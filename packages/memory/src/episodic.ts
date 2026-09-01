@@ -1,6 +1,6 @@
 import { getConfig } from "@mini-agent/config";
 import { query, toVector } from "@mini-agent/db";
-import { embed } from "./embeddings.js";
+import { embed, scheduleEmbedding } from "./embeddings.js";
 
 const TOP_K = getConfig().memory.ragTopK;
 const RECENT_LIMIT = getConfig().memory.episodicRecentLimit;
@@ -54,19 +54,29 @@ export async function recall(
   );
 }
 
-/** Every reply is saved here. The episodic store is the append-only log. */
+/**
+ * Every reply is saved here. The episodic store is the append-only log.
+ *
+ * The row lands with a null embedding and the vector is filled in by a job:
+ * the chat path should not wait on an embedding round-trip for something no
+ * reader needs yet (`recall` skips rows without one). Returns the new id.
+ */
 export async function saveMessage(
   conversationId: string,
   userId: string,
   role: StoredMessage["role"],
   content: string,
-): Promise<void> {
-  const vector = await embed(content);
-  await query(
-    `INSERT INTO messages (conversation_id, user_id, role, content, embedding)
-     VALUES ($1, $2, $3, to_jsonb($4::text), $5::vector)`,
-    [conversationId, userId, role, content, vector ? toVector(vector) : null],
+): Promise<string> {
+  const [row] = await query<{ id: string }>(
+    `INSERT INTO messages (conversation_id, user_id, role, content)
+     VALUES ($1, $2, $3, to_jsonb($4::text))
+     RETURNING id::text`,
+    [conversationId, userId, role, content],
   );
+  if (!row) throw new Error("failed to save message");
+
+  await scheduleEmbedding("messages", row.id);
+  return row.id;
 }
 
 export async function unconsolidated(userId: string): Promise<StoredMessage[]> {

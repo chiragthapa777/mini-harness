@@ -16,4 +16,12 @@ export {
   type ConversationRow,
 } from "./conversations.js";
 export { consolidate, type Summarizer } from "./consolidate.js";
-export { embed, embeddingsConfigured, EMBEDDING_DIMENSIONS } from "./embeddings.js";
+export {
+  backfillEmbeddings,
+  embed,
+  embeddingsConfigured,
+  embedRow,
+  scheduleEmbedding,
+  EMBEDDING_DIMENSIONS,
+  type EmbeddableTable,
+} from "./embeddings.js";
