@@ -81,7 +81,7 @@ consolidation) onto it, then wire what that produces back into the run loop.
   - prompt + gate live in config (packages/config), versioned like the rest — not inlined at the call site
   - until this ships, `messages.consolidated_at` is never set and semantic memory only grows from the agent's own `remember` tool
 
-- [ ] 11. fact consolidation — dedup, merge, and supersede facts in semantic memory
+- [x] 11. fact consolidation — dedup, merge, and supersede facts in semantic memory
   - depends on #10 (nothing generates enough facts to need this until consolidation runs on a schedule)
   - the problem: `writeFact` (packages/memory/src/semantic.ts:85) is a blind INSERT — no dedup, no update path. `updated_at` is never touched after insert, so "user lives in Kathmandu" written five times is five rows competing for the same top-k slots, and a *changed* fact never replaces the stale one it contradicts
   - proposed policy (decide before building):

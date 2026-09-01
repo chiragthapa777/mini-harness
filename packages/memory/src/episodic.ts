@@ -4,6 +4,7 @@ import { embed, scheduleEmbedding } from "./embeddings.js";
 
 const TOP_K = getConfig().memory.ragTopK;
 const RECENT_LIMIT = getConfig().memory.episodicRecentLimit;
+const HISTORY_LIMIT = getConfig().memory.historyLimit;
 
 export interface StoredMessage {
   id: string;
@@ -26,10 +27,45 @@ const SELECT_MESSAGE = `SELECT id::text, role, content #>> '{}' AS content, crea
 export async function recall(
   userId: string,
   limit = RECENT_LIMIT,
+  excludeConversationId?: string,
+): Promise<StoredMessage[]> {
+  // The current conversation is replayed verbatim as chat history, so
+  // including it here would send the same turns twice in one prompt. Excluding
+  // it leaves this query doing what its heading claims: what happened
+  // *elsewhere*, recently.
+  const recent = excludeConversationId
+    ? await query<StoredMessage>(
+        `${SELECT_MESSAGE}
+          WHERE user_id = $1 AND conversation_id <> $3
+          ORDER BY created_at DESC LIMIT $2`,
+        [userId, limit, excludeConversationId],
+      )
+    : await query<StoredMessage>(
+        `${SELECT_MESSAGE} WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+        [userId, limit],
+      );
+  return recent.reverse();
+}
+
+/**
+ * The current conversation, verbatim, newest `limit` turns in reading order.
+ *
+ * This is the chat history the model is replayed — scoped to one conversation
+ * on purpose. A user-wide recent window mixed unrelated threads into the
+ * transcript, which reads to the model as one incoherent conversation. What
+ * fell off the front of this window is not lost: it is what the conversation's
+ * rolling summary carries (`conversationSummary` in `summaries.ts`).
+ */
+export async function conversationHistory(
+  conversationId: string,
+  limit = HISTORY_LIMIT,
 ): Promise<StoredMessage[]> {
   const recent = await query<StoredMessage>(
-    `${SELECT_MESSAGE} WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
-    [userId, limit],
+    `${SELECT_MESSAGE}
+      WHERE conversation_id = $1 AND role IN ('user', 'assistant')
+      ORDER BY created_at DESC, id DESC
+      LIMIT $2`,
+    [conversationId, limit],
   );
   return recent.reverse();
 }

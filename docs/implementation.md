@@ -55,7 +55,8 @@ run actually works step by step (the loop, tool calls, working memory), see
 - **Admin dashboard** (`src/pages/Admin.tsx`), three tabs, each its own component under
   `src/components/admin/`:
   - `UsersTab` — list/create users, change role, clear a lockout.
-  - `MemoryTab` — browse any user's semantic facts (admin-only).
+  - `MemoryTab` — browse any user's semantic facts (admin-only), with a "show merged"
+    toggle revealing archived facts and the id each was merged into.
   - `TracesTab` — filter/browse traces by user, model, error status, date range; the list
     itself shows a truncated system prompt per row, the expanded detail view has the
     full assembled system prompt plus per-step tool calls for that run.
@@ -140,10 +141,13 @@ Deploy it alongside the API (`docker-compose.yml`, service `worker`) or not at a
 - **`loop.ts` / `stream.ts`** — the agentic loop, non-streaming and streaming twins.
   Each iteration: call the model, parse `tool_call` fences out of the reply, run the
   matching tool handlers, feed results back as the next user turn. `buildSystem` renders
-  retrieved memory under four headings — *How to act*, *What is known*, *Earlier
-  conversations* (dated recaps), *Recent messages* (verbatim window). The last two are
-  separate because a recap of an episode and the last few turns are not the same kind of
-  thing, and one heading would tell the model they were. Guardrails:
+  retrieved memory under five headings — *How to act*, *What is known*, *Earlier in this
+  conversation* (this thread's rolling recap), *Earlier conversations* (dated recaps of
+  other threads), *Recent messages elsewhere* (verbatim window from other threads). The
+  episodic ones are separate because a recap of an episode and the last few turns are not
+  the same kind of thing, and one heading would tell the model they were. The current
+  thread's recent turns are not in the system prompt at all — they are replayed as real
+  chat history (`wm.history`). Guardrails:
   `maxIterations`, `maxTokensPerRun`. Every run returns a `Trace` — provider, model, the
   **fully assembled system prompt actually sent**, iterations, token counts, latency,
   stop reason, and one `TraceStep` per iteration (tool calls, tokens, latency).
@@ -174,12 +178,28 @@ SDK imported lazily. Also owns embeddings (`embed`, `embedQuery`) for the vector
   (`skills/`), no search step, loaded straight into working memory.
 - **Semantic** (`semantic.ts`) — `facts` table. `searchFacts` (RAG top-k, falls back to
   most-recent when no embedding), `writeFact`, `listFacts` (admin listing, offset-paged,
-  no ranking).
+  no ranking). Every read path filters `archived_at IS NULL`. `writeFact` dedups exact
+  repeats inline — consolidation re-derives the same sentence from overlapping batches,
+  and touching `updated_at` records "seen again" without spending a row or an embedding.
+- **Fact consolidation** (`dedupe.ts`) — near-duplicates need the vector, so they are a
+  job. pgvector finds pairs under `FACT_DEDUPE_DISTANCE`, union-find turns pairs into
+  clusters (transitively: A~B and B~C means all three describe one thing), and a cheap
+  model writes the single sentence replacing each cluster — told to resolve contradictions
+  by recency rather than keeping both halves. The oldest row survives so references hold;
+  losers are archived with `superseded_by` pointing at it. Nothing is deleted: a merge has
+  to be reversible and auditable. A per-user cap archives the least recently updated past
+  `FACT_MAX_PER_USER`. The distance default is measured, not guessed — paraphrases land at
+  0.18-0.39, unrelated facts at 0.69+.
 - **Conversations** (`conversations.ts`) — the container the episodic log hangs off:
   list/create/delete, messages for one thread, title-from-first-message. Lives here, not
   in an app, because both the API and the worker need it.
-- **Episodic** (`episodic.ts`) — `messages` table. `recall` unions a recency query and a
-  relevance query (RAG); `saveMessage` embeds and stores every turn.
+- **Episodic** (`episodic.ts`) — `messages` table. Three readers, three jobs:
+  `conversationHistory` returns one conversation's last `HISTORY_LIMIT` (20) user/assistant
+  turns in reading order — this is the chat history the model is replayed; `recall` is the
+  recency window across the user's *other* threads (it takes the current conversation as an
+  exclusion, so the same turns are never sent twice in one prompt); `searchMessages` is
+  turn-level RAG, reached for by the `search_memory` tool. `saveMessage` appends and queues
+  the embedding.
 - **Summaries** (`summaries.ts`, `summarizer.ts`, `prompts.ts`) — each conversation
   carries a rolling recap under 200 words (`conversations.summary`), driven off a
   watermark (`summary_message_id`): a job reads the messages past it, rewrites the
@@ -251,7 +271,7 @@ Schema (`schema.sql`, applied on first boot of an empty Postgres volume):
 | `conversations` | one row per chat thread, plus its rolling summary and watermark |
 | `messages` | episodic log — role, content, embedding, `consolidated_at` |
 | `events` | dated events — one per conversation, holding that conversation's summary; what episodic RAG ranks |
-| `facts` | semantic memory — kind, content, embedding, source |
+| `facts` | semantic memory — kind, content, embedding, source, plus `archived_at`/`superseded_by` for merges |
 | `traces` | one row per agent run — tokens, latency, stop reason, steps (jsonb), system prompt |
 | `jobs` | background work — type, payload, status, attempts, backoff schedule, dedupe key, result |
 | `scheduled_jobs` | cron schedules — system (from config, keyed) and user (prompt + cadence), with `next_run_at` and the last job fired |
@@ -286,3 +306,30 @@ configurable window (`LOGIN_MAX_ATTEMPTS`/`LOGIN_LOCKOUT_MINUTES`).
 
 See [`README.md`](../README.md) for setup/run instructions — this doc is a reference for
 what exists, not a getting-started guide.
+
+## 6. CI/CD
+
+`.github/workflows/release-images.yml` — builds and pushes the three deployable images to
+GHCR. Triggered only by pushing a version tag (`v*`); branch pushes do nothing.
+
+| App | Image |
+|---|---|
+| `apps/api` | `ghcr.io/chiragthapa777/mini-harness/api` |
+| `apps/worker` | `ghcr.io/chiragthapa777/mini-harness/worker` |
+| `apps/web` | `ghcr.io/chiragthapa777/mini-harness/web` |
+
+The three build in parallel via a matrix, each from the repo root as build context (the
+Dockerfiles copy workspace manifests, so an app-scoped context would break `pnpm install`).
+Auth is the workflow's own `GITHUB_TOKEN` with `packages: write` — no PAT or secret to
+manage. `docker/metadata-action` turns `v1.4.0` into tags `1.4.0`, `1.4`, `1`, and
+`latest`; a pre-release tag (`v1.4.0-rc.1`) publishes the full version only and leaves
+`latest` where it was. Layers cache in GitHub Actions cache, scoped per app.
+
+Builds are `linux/amd64` only — arm64 would need QEMU emulation for `pnpm install`, which
+roughly triples build time. Add `linux/arm64` to `platforms` if the images need to run on
+Apple Silicon or Graviton.
+
+**One manual step, once:** GHCR packages are created private on first push. After the first
+tag, open each package under github.com/users/chiragthapa777/packages and set its visibility
+to public. Publishing anonymously-pullable images is a deliberate exposure decision, so the
+workflow does not flip that automatically.

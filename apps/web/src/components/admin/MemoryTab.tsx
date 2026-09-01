@@ -7,10 +7,15 @@ const inputClass =
 const KINDS = ["fact", "profile", "domain_rule", "data_dictionary"] as const;
 const LIMIT = 20;
 
-/** Semantic memory — durable facts the summarizer wrote for one user, admin-viewable for any user. */
+/**
+ * Semantic memory — durable facts for one user, admin-viewable for any user.
+ * Merged-away facts are hidden by default and shown with the id they were
+ * merged into, so a dedup pass can be audited rather than taken on trust.
+ */
 export function MemoryTab({ users }: { users: AdminUser[] }) {
   const [userId, setUserId] = useState("");
   const [kind, setKind] = useState("");
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [offset, setOffset] = useState(0);
   const [facts, setFacts] = useState<AdminFact[]>([]);
   const [total, setTotal] = useState(0);
@@ -25,14 +30,14 @@ export function MemoryTab({ users }: { users: AdminUser[] }) {
     if (!userId) return;
     setLoading(true);
     setError(null);
-    adminListFacts(userId, { kind: kind || undefined, limit: LIMIT, offset })
+    adminListFacts(userId, { kind: kind || undefined, includeArchived, limit: LIMIT, offset })
       .then((res) => {
         setFacts(res.facts);
         setTotal(res.total);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "failed to load memory"))
       .finally(() => setLoading(false));
-  }, [userId, kind, offset]);
+  }, [userId, kind, includeArchived, offset]);
 
   return (
     <div className="space-y-4">
@@ -68,6 +73,19 @@ export function MemoryTab({ users }: { users: AdminUser[] }) {
           ))}
         </select>
 
+        {/* Without this, a merge is indistinguishable from losing the fact. */}
+        <label className="flex items-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            checked={includeArchived}
+            onChange={(e) => {
+              setIncludeArchived(e.target.checked);
+              setOffset(0);
+            }}
+          />
+          show merged
+        </label>
+
         <span className="text-xs text-neutral-400">{total} facts</span>
       </div>
 
@@ -91,7 +109,14 @@ export function MemoryTab({ users }: { users: AdminUser[] }) {
                     {f.kind}
                   </span>
                 </td>
-                <td className="max-w-md py-1.5 pr-4 whitespace-pre-wrap">{f.content}</td>
+                <td className="max-w-md py-1.5 pr-4 whitespace-pre-wrap">
+                  {f.content}
+                  {f.archived_at && (
+                    <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-950/50 dark:text-amber-400">
+                      {f.superseded_by ? `merged into #${f.superseded_by}` : "archived"}
+                    </span>
+                  )}
+                </td>
                 <td className="py-1.5 pr-4 text-neutral-400">{f.source ?? "—"}</td>
                 <td className="py-1.5 whitespace-nowrap text-neutral-400">
                   {new Date(f.updated_at).toLocaleString()}

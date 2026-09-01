@@ -61,10 +61,13 @@ const schema = z.object({
   AGENT_MAX_TOKENS: numeric(16000),
   AGENT_MAX_ITERATIONS: numeric(8),
   AGENT_MAX_TOKENS_PER_RUN: numeric(100_000),
-  PROMPT_VERSION: str("2"),
+  PROMPT_VERSION: str("3"),
 
   RAG_TOP_K: numeric(5),
   EPISODIC_RECENT_LIMIT: numeric(10),
+  // Turns of the *current* conversation replayed verbatim as chat history.
+  // Anything older is carried by that conversation's rolling summary.
+  HISTORY_LIMIT: numeric(20),
   CONSOLIDATE_AFTER_N_MESSAGES: numeric(20),
   SKILLS_DIR: str("skills"),
 
@@ -77,6 +80,17 @@ const schema = z.object({
   SUMMARY_MAX_WORDS: numeric(200),
   // How many of a conversation's messages one summarize pass reads.
   SUMMARY_MAX_MESSAGES: numeric(120),
+
+  // Fact consolidation. Distance is pgvector cosine distance (0 = identical),
+  // so a *smaller* threshold merges less. 0.45 was measured, not guessed: with
+  // text-embedding-3-small, paraphrases of one fact land at 0.18-0.39 while
+  // unrelated facts sit at 0.69+, so this falls in the gap between them.
+  FACT_DEDUPE_DISTANCE: numeric(0.45),
+  // Above this many active facts, a user is worth a dedup pass.
+  FACT_DEDUPE_MIN_FACTS: numeric(10),
+  // Ceiling on active facts per user; the least recently updated are archived
+  // past it, so top-k quality does not decay as the table grows.
+  FACT_MAX_PER_USER: numeric(500),
 
   SEARCH_PROVIDER: z.enum(SEARCH_PROVIDERS).catch("duckduckgo"),
   SEARCH_MAX_RESULTS: numeric(5),
@@ -139,6 +153,7 @@ export interface Config {
   memory: {
     ragTopK: number;
     episodicRecentLimit: number;
+    historyLimit: number;
     consolidateAfterNMessages: number;
     skillsDir: string;
     /** The model memory uses for its own summarizing. Defaults to the agent's. */
@@ -147,6 +162,9 @@ export interface Config {
     summaryMaxTokens: number;
     summaryMaxWords: number;
     summaryMaxMessages: number;
+    factDedupeDistance: number;
+    factDedupeMinFacts: number;
+    factMaxPerUser: number;
   };
   search: {
     provider: SearchProviderName;
@@ -223,6 +241,7 @@ export function getConfig(): Config {
     memory: {
       ragTopK: env.RAG_TOP_K,
       episodicRecentLimit: env.EPISODIC_RECENT_LIMIT,
+      historyLimit: env.HISTORY_LIMIT,
       consolidateAfterNMessages: env.CONSOLIDATE_AFTER_N_MESSAGES,
       skillsDir: env.SKILLS_DIR,
       summaryProvider: AGENT_PROVIDERS.includes(env.SUMMARY_PROVIDER as AgentProvider)
@@ -232,6 +251,9 @@ export function getConfig(): Config {
       summaryMaxTokens: env.SUMMARY_MAX_TOKENS,
       summaryMaxWords: env.SUMMARY_MAX_WORDS,
       summaryMaxMessages: env.SUMMARY_MAX_MESSAGES,
+      factDedupeDistance: env.FACT_DEDUPE_DISTANCE,
+      factDedupeMinFacts: env.FACT_DEDUPE_MIN_FACTS,
+      factMaxPerUser: env.FACT_MAX_PER_USER,
     },
     search: {
       provider: env.SEARCH_PROVIDER,

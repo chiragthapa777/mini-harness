@@ -83,10 +83,29 @@ test("system prompt carries the catalog and retrieved memory", async () => {
   assert.match(system, /### echo/);
   assert.match(system, /## How to act\n- always answer/);
   assert.match(system, /## What is known\n- the user likes tests/);
-  // The two episodic shapes are rendered apart: a recap of an earlier
+  // The episodic shapes are rendered apart: a recap of an earlier
   // conversation is not the same kind of thing as the last few turns.
   assert.match(system, /## Earlier conversations\n- 2026-01-01 — the user asked about testing/);
-  assert.match(system, /## Recent messages\n- 2026-01-01 user: hi/);
+  assert.match(system, /## Recent messages elsewhere\n- 2026-01-01 user: hi/);
+});
+
+test("this conversation's recap gets its own section, and is omitted when absent", async () => {
+  const withSummary = fakeModel(["done"]);
+  await runAgent({ ...wm, conversationSummary: "we picked a date" }, [echo], config, {
+    model: withSummary.model,
+  });
+  assert.match(
+    String(withSummary.seen[0]?.[0]?.content ?? ""),
+    /## Earlier in this conversation\n- we picked a date/,
+  );
+
+  // A short thread has no summary yet — the heading must not appear empty.
+  const without = fakeModel(["done"]);
+  await runAgent(wm, [echo], config, { model: without.model });
+  assert.doesNotMatch(
+    String(without.seen[0]?.[0]?.content ?? ""),
+    /Earlier in this conversation/,
+  );
 });
 
 test("runs a tool, feeds the result back, then answers", async () => {

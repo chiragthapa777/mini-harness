@@ -106,9 +106,19 @@ CREATE TABLE IF NOT EXISTS facts (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- Merging supersedes, it never deletes: the losing row stays, pointing at the
+-- fact that replaced it. That keeps an audit trail, makes a bad merge
+-- reversible, and means "where did that fact go" has an answer.
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS superseded_by bigint REFERENCES facts(id) ON DELETE SET NULL;
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+
 CREATE INDEX IF NOT EXISTS facts_user_idx ON facts (user_id, kind);
 CREATE INDEX IF NOT EXISTS facts_embedding_idx
   ON facts USING hnsw (embedding vector_cosine_ops);
+
+-- Every read path filters archived rows, so the index they use should too.
+CREATE INDEX IF NOT EXISTS facts_active_idx
+  ON facts (user_id, updated_at DESC) WHERE archived_at IS NULL;
 
 -- ------------------------------------------------------------------ traces
 -- One trace per run. Everything LLM Ops needs to answer "was it correct"

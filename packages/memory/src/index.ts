@@ -1,6 +1,7 @@
 export { loadProcedural } from "./procedural.js";
 export { searchFacts, writeFact, listFacts, type Fact, type AdminFact } from "./semantic.js";
 export {
+  conversationHistory,
   recall,
   recallEvents,
   saveMessage,
@@ -24,8 +25,10 @@ export {
   usersNeedingConsolidation,
   type Summarizer,
 } from "./consolidate.js";
+export { dedupeFacts, usersNeedingDedupe, type DedupeResult } from "./dedupe.js";
 export {
   conversationsNeedingSummary,
+  conversationSummary,
   summarizeConversation,
   type SummarizeResult,
 } from "./summaries.js";

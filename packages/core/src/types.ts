@@ -32,8 +32,20 @@ export interface WorkingMemory {
   semantic: string[];
   /** Dated summaries of earlier conversations, most relevant first. */
   events: string[];
+  /** Recent turns from the user's *other* conversations. */
   episodic: string[];
+  /**
+   * The current conversation, replayed as real chat turns rather than prose in
+   * the system prompt — this is the one part of working memory the model
+   * should read as dialogue it took part in. Empty when there is no
+   * conversation to replay.
+   */
   history: Msg[];
+  /**
+   * Recap of the part of *this* conversation that fell out of `history`.
+   * Undefined when the whole thread still fits, which is the common case.
+   */
+  conversationSummary?: string;
   userPrompt: string;
 }
 

@@ -20,6 +20,13 @@ const silent = { info() {}, error() {} };
 const makeDue = (id: string) =>
   query(`UPDATE scheduled_jobs SET next_run_at = now() - interval '1 minute' WHERE id = $1`, [id]);
 
+/**
+ * `tick()` fires every due schedule in the database, including the system ones
+ * a worker seeded earlier, so its return count says nothing about this test.
+ * Count what this user's schedule produced instead.
+ */
+const jobsForUser = async () => (await listJobs({ userId: USER })).total;
+
 describe("scheduler", { skip: configured ? false : "DATABASE_URL not set" }, () => {
   const clean = async () => {
     await query(`DELETE FROM jobs WHERE user_id = $1`, [USER]);
@@ -65,7 +72,7 @@ describe("scheduler", { skip: configured ? false : "DATABASE_URL not set" }, () 
     assert.ok(schedule.next_run_at, "a new schedule knows when it fires next");
 
     await makeDue(schedule.id);
-    assert.equal(await tick(silent), 1);
+    await tick(silent);
 
     const { jobs } = await listJobs({ userId: USER });
     assert.equal(jobs.length, 1);
@@ -96,14 +103,14 @@ describe("scheduler", { skip: configured ? false : "DATABASE_URL not set" }, () 
 
     // The first job is still queued; the next firing must skip, not stack.
     await makeDue(schedule.id);
-    assert.equal(await tick(silent), 0, "skipped while the previous run is live");
-    assert.equal((await listJobs({ userId: USER })).total, 1);
+    await tick(silent);
+    assert.equal(await jobsForUser(), 1, "skipped while the previous run is live");
 
     // Once it finishes, the schedule fires again.
     await query(`UPDATE jobs SET status = 'succeeded' WHERE user_id = $1`, [USER]);
     await makeDue(schedule.id);
-    assert.equal(await tick(silent), 1);
-    assert.equal((await listJobs({ userId: USER })).total, 2);
+    await tick(silent);
+    assert.equal(await jobsForUser(), 2);
   });
 
   it("skips a paused schedule and reschedules from now when resumed", async () => {
@@ -117,8 +124,8 @@ describe("scheduler", { skip: configured ? false : "DATABASE_URL not set" }, () 
 
     await updateSchedule(schedule.id, { enabled: false });
     await makeDue(schedule.id);
-    assert.equal(await tick(silent), 0);
-    assert.equal((await listJobs({ userId: USER })).total, 0);
+    await tick(silent);
+    assert.equal(await jobsForUser(), 0, "a paused schedule fires nothing");
 
     // Resuming must not fire a backlog: the next run is computed from now.
     const resumed = await updateSchedule(schedule.id, { enabled: true });

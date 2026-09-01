@@ -117,10 +117,13 @@ export function buildSystem(wm: WorkingMemory, tools: AgentTool[]): string {
   const sections: [string, string[]][] = [
     ["How to act", wm.procedural],
     ["What is known", wm.semantic],
-    // Two episodic sections, because they are not the same kind of thing: one
-    // is a recap of a past conversation, the other is what was just said.
+    // Three episodic sections, because they are not the same kind of thing:
+    // a recap of *this* thread's older half, recaps of other conversations,
+    // and recent turns from elsewhere. The current thread's recent turns are
+    // not here at all — they are replayed as chat history instead.
+    ["Earlier in this conversation", wm.conversationSummary ? [wm.conversationSummary] : []],
     ["Earlier conversations", wm.events],
-    ["Recent messages", wm.episodic],
+    ["Recent messages elsewhere", wm.episodic],
   ];
 
   const retrieved = sections

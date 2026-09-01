@@ -5,11 +5,13 @@ import {
   backfillEmbeddings,
   consolidate,
   conversationsNeedingSummary,
+  dedupeFacts,
   createConversation,
   embedRow,
   summarizeConversation,
   titleFromFirstMessage,
   usersNeedingConsolidation,
+  usersNeedingDedupe,
 } from "@mini-agent/memory";
 import { logger } from "./logger.js";
 
@@ -79,6 +81,31 @@ export const handlers: JobRegistry = {
         "consolidate_user",
         { userId: user.user_id },
         { userId: user.user_id, dedupeKey: `consolidate:${user.user_id}` },
+      );
+      if (id) enqueued++;
+    }
+
+    return { due: due.length, enqueued };
+  },
+
+  /**
+   * Merge one user's near-duplicate facts. A pass over a clean set finds no
+   * pairs and makes no model calls, so running it nightly costs one query.
+   */
+  async dedupe_facts({ userId }) {
+    return dedupeFacts(userId);
+  },
+
+  /** Sweep: only users with enough facts for duplicates to be plausible. */
+  async dedupe_sweep({ limit }) {
+    const due = await usersNeedingDedupe(undefined, limit ?? 50);
+    let enqueued = 0;
+
+    for (const user of due) {
+      const id = await enqueue(
+        "dedupe_facts",
+        { userId: user.user_id },
+        { userId: user.user_id, dedupeKey: `dedupe:${user.user_id}` },
       );
       if (id) enqueued++;
     }

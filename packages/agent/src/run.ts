@@ -11,6 +11,8 @@ import {
 } from "@mini-agent/core";
 import { query } from "@mini-agent/db";
 import {
+  conversationHistory,
+  conversationSummary,
   loadProcedural,
   recall,
   recallEvents,
@@ -44,7 +46,7 @@ export async function run({
   conversationId,
   prompt,
 }: RunRequest): Promise<PersistedRun> {
-  const wm = await workingMemory(userId, prompt);
+  const wm = await workingMemory(userId, prompt, conversationId);
   const result = await runAgent(wm, toolsFor(userId), runConfig());
 
   const traceId = await persist({
@@ -66,7 +68,7 @@ export async function* runStream({
   conversationId,
   prompt,
 }: RunRequest): AsyncGenerator<RunEvent, void, undefined> {
-  const wm = await workingMemory(userId, prompt);
+  const wm = await workingMemory(userId, prompt, conversationId);
 
   let reply = "";
   let trace: Trace | undefined;
@@ -85,13 +87,31 @@ export async function* runStream({
  * per store, as it should be: procedural loads direct, semantic is RAG top-k,
  * and episodic is both — RAG over conversation summaries for relevance, SQL
  * over messages for the recent window.
+ *
+ * Chat history is the current conversation and nothing else. It used to be the
+ * user's most recent messages across every thread, which handed the model a
+ * transcript stitched together from unrelated conversations and asked it to
+ * treat that as the dialogue it was in. Now the thread it is actually in is
+ * replayed verbatim (last `historyLimit` turns), the older half of that thread
+ * arrives as the conversation's rolling summary, and the user's other threads
+ * stay where they belong — retrieved memory in the system prompt.
+ *
+ * With no conversation to scope to, history is empty rather than approximated:
+ * a run with no thread has no dialogue to replay, and the memory stores still
+ * supply everything else.
  */
-async function workingMemory(userId: string, prompt: string): Promise<WorkingMemory> {
-  const [procedural, facts, events, episodes] = await Promise.all([
+async function workingMemory(
+  userId: string,
+  prompt: string,
+  conversationId?: string,
+): Promise<WorkingMemory> {
+  const [procedural, facts, events, episodes, history, summary] = await Promise.all([
     loadProcedural(),
     searchFacts(userId, prompt),
     recallEvents(userId, prompt),
-    recall(userId),
+    recall(userId, undefined, conversationId),
+    conversationId ? conversationHistory(conversationId) : [],
+    conversationId ? conversationSummary(conversationId) : null,
   ]);
 
   return {
@@ -101,10 +121,11 @@ async function workingMemory(userId: string, prompt: string): Promise<WorkingMem
     // A recap is dated, not timestamped: the day is what makes it findable.
     events: events.map((e) => `${e.occurred_at.toISOString().slice(0, 10)} — ${e.summary}`),
     episodic: episodes.map((e) => `${e.created_at.toISOString()} ${e.role}: ${e.content}`),
-    history: episodes.map((m) => ({
+    history: history.map((m) => ({
       role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
       content: m.content,
     })),
+    conversationSummary: summary ?? undefined,
     userPrompt: prompt,
   };
 }

@@ -68,11 +68,13 @@ export interface AdminFact {
   source: string | null;
   created_at: string;
   updated_at: string;
+  archived_at: string | null;
+  superseded_by: string | null;
 }
 
 export const adminListFacts = (
   userId: string,
-  opts: { kind?: string; limit?: number; offset?: number } = {},
+  opts: { kind?: string; includeArchived?: boolean; limit?: number; offset?: number } = {},
 ) =>
   json<{ facts: AdminFact[]; total: number }>(
     `/admin/facts?${qs({ userId, ...opts })}`,

@@ -26,6 +26,21 @@ export interface ConversationSummary {
 }
 
 /**
+ * One conversation's current recap, or null if a summary job has not run for
+ * it yet (a short thread that fits entirely in the replayed history never
+ * needs one). Read on the chat path, so it is a single indexed lookup and
+ * never triggers summarization itself — a run must not wait on a model call
+ * that a background job already owns.
+ */
+export async function conversationSummary(conversationId: string): Promise<string | null> {
+  const [row] = await query<{ summary: string | null }>(
+    `SELECT summary FROM conversations WHERE id = $1`,
+    [conversationId],
+  );
+  return row?.summary ?? null;
+}
+
+/**
  * Conversations with messages the summary has not seen. Cheap enough to run
  * every five minutes: an idle system matches nothing and enqueues nothing.
  */

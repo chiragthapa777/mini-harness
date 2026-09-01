@@ -106,11 +106,14 @@ adminRoutes.get("/admin/facts", async (req, res) => {
     return;
   }
   const kind = typeof req.query.kind === "string" ? req.query.kind : undefined;
+  // Archived facts are the losing half of a merge — hidden by default, but a
+  // merge that cannot be inspected looks like data loss.
+  const includeArchived = req.query.includeArchived === "true";
   const limit = clampInt(req.query.limit, 20, 1, 100);
   const offset = clampInt(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
 
   try {
-    res.json(await listFacts(userId, { kind, limit, offset }));
+    res.json(await listFacts(userId, { kind, includeArchived, limit, offset }));
   } catch (err) {
     logger.error("admin list facts failed", err);
     res.status(500).json({ error: message(err) });
