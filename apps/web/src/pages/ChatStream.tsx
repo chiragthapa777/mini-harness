@@ -91,10 +91,24 @@ export function ChatStream() {
           case "iteration_start":
             iteration = event.iteration;
             setStatus(`step ${event.iteration}`);
-            patch((turn) => ({
-              ...turn,
-              steps: [...(turn.steps ?? []), { iteration: event.iteration, calls: [] }],
-            }));
+            patch((turn) => {
+              // Only the final iteration's text becomes the reply (see
+              // `loop.ts`) — text streamed before an earlier iteration's tool
+              // call is leaked preamble, not part of the answer, so it must
+              // not stick around to be glued onto it. It is still worth
+              // keeping, though, so park it as a note on the step that
+              // produced it instead of dropping it.
+              const steps = turn.steps ?? [];
+              const withNote =
+                turn.text && steps.length > 0
+                  ? steps.map((s, i) => (i === steps.length - 1 ? { ...s, notes: turn.text } : s))
+                  : steps;
+              return {
+                ...turn,
+                text: "",
+                steps: [...withNote, { iteration: event.iteration, calls: [] }],
+              };
+            });
             break;
 
           case "thinking_delta":

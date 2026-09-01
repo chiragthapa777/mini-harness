@@ -60,7 +60,7 @@ export interface Turn {
   role: "user" | "assistant";
   text: string;
   thinking?: string;
-  steps?: { iteration: number; calls: ToolCallView[] }[];
+  steps?: { iteration: number; calls: ToolCallView[]; notes?: string }[];
   trace?: Trace;
   error?: string;
   streaming?: boolean;

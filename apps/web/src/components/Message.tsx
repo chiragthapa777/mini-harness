@@ -20,6 +20,7 @@ export function Message({ turn }: { turn: Turn }) {
 
       {turn.steps?.map((step) => (
         <div key={step.iteration} className="space-y-1.5">
+          {step.notes && <StepNotes text={step.notes} />}
           {step.calls.map((call) => (
             <ToolCall key={call.id} call={call} />
           ))}
@@ -75,6 +76,30 @@ function Thinking({ text, streaming }: { text: string; streaming?: boolean }) {
       </button>
       {open && (
         <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap px-3 pb-3 text-xs leading-relaxed text-neutral-600 dark:text-neutral-400">
+          {text}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/** Visible text a step produced before its tool call — not part of the reply, kept for inspection. */
+function StepNotes({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-neutral-200 bg-neutral-50 text-xs dark:border-neutral-800 dark:bg-neutral-900/60">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+      >
+        <span className={`transition-transform ${open ? "rotate-90" : ""}`}>›</span>
+        <span>Notes</span>
+        {!open && <span className="truncate font-normal text-neutral-400">{text.slice(0, 70)}</span>}
+      </button>
+      {open && (
+        <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap px-3 pb-3 leading-relaxed text-neutral-600 dark:text-neutral-400">
           {text}
         </pre>
       )}

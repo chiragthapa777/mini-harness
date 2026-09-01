@@ -1,4 +1,4 @@
-# mini-agent
+# mini-harness
 
 A mini harness usable as your personal AI agent. Monorepo: web app + API server on
 top of a shared harness core (agentic loop, memory, tools).
