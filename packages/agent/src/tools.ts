@@ -1,4 +1,5 @@
 import { defaultTools, type AgentTool } from "@mini-agent/core";
+import { mcpTools } from "@mini-agent/mcp";
 import { recallEvents, searchFacts, searchMessages, writeFact } from "@mini-agent/memory";
 import { z } from "zod";
 
@@ -55,4 +56,19 @@ export function toolsFor(userId: string): AgentTool[] {
   };
 
   return [...defaultTools, remember, searchMemory];
+}
+
+/**
+ * The full tool list for a run: everything `toolsFor` builds, plus whatever
+ * the configured MCP servers publish.
+ *
+ * MCP tools arrive as ordinary `AgentTool`s and go through the same fenced
+ * `tool_call` protocol as the rest — there is no provider-native function
+ * calling here, so there is no second path for them to take. Servers are
+ * connected once per process and reused; one that will not start contributes
+ * nothing and does not fail the run.
+ */
+export async function toolsWithMcp(userId: string): Promise<AgentTool[]> {
+  const external = await mcpTools();
+  return [...toolsFor(userId), ...(external as AgentTool[])];
 }

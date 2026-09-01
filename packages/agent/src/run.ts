@@ -19,7 +19,7 @@ import {
   saveMessage,
   searchFacts,
 } from "@mini-agent/memory";
-import { toolsFor } from "./tools.js";
+import { toolsWithMcp } from "./tools.js";
 
 export interface RunRequest {
   userId: string;
@@ -46,8 +46,11 @@ export async function run({
   conversationId,
   prompt,
 }: RunRequest): Promise<PersistedRun> {
-  const wm = await workingMemory(userId, prompt, conversationId);
-  const result = await runAgent(wm, toolsFor(userId), runConfig());
+  const [wm, tools] = await Promise.all([
+    workingMemory(userId, prompt, conversationId),
+    toolsWithMcp(userId),
+  ]);
+  const result = await runAgent(wm, tools, runConfig());
 
   const traceId = await persist({
     userId,
@@ -68,12 +71,15 @@ export async function* runStream({
   conversationId,
   prompt,
 }: RunRequest): AsyncGenerator<RunEvent, void, undefined> {
-  const wm = await workingMemory(userId, prompt, conversationId);
+  const [wm, tools] = await Promise.all([
+    workingMemory(userId, prompt, conversationId),
+    toolsWithMcp(userId),
+  ]);
 
   let reply = "";
   let trace: Trace | undefined;
 
-  for await (const event of runAgentStream(wm, toolsFor(userId), runConfig())) {
+  for await (const event of runAgentStream(wm, tools, runConfig())) {
     if (event.type === "reply") reply = event.text;
     if (event.type === "trace") trace = event.trace;
     yield event;

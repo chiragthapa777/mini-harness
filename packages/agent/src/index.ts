@@ -7,4 +7,4 @@
  * belongs in `packages/`.
  */
 export { run, runStream, type PersistedRun, type RunRequest } from "./run.js";
-export { toolsFor } from "./tools.js";
+export { toolsFor, toolsWithMcp } from "./tools.js";

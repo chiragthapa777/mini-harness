@@ -105,7 +105,7 @@ consolidation) onto it, then wire what that produces back into the run loop.
   - auth: reuse the JWT login flow (apps/api/src/routes/auth.routes.ts), token cached locally (e.g. `~/.mini-agent/token`)
   - this is also the natural home for the terminal coding agent (#16) once that persona exists
 
-- [ ] 14. add support for mcp
+- [x] 14. add support for mcp
   - MCP client wiring in packages/core so `AgentTool[]` can include tools proxied from an MCP server, alongside the existing hand-written tools (packages/core/src/tools.ts)
   - config for which MCP servers to connect to (packages/config)
   - decide how MCP tool results map onto our own `tool_call` fence protocol (packages/core/src/protocol.ts) — no provider-native function calling in this repo, so MCP tools need to render through the same catalog/parsing path as everything else

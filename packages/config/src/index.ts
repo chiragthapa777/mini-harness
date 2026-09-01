@@ -41,6 +41,22 @@ const optionalStr = z.preprocess(
   z.string().optional(),
 );
 
+/**
+ * A JSON blob in an env var. Anything unparseable falls back to `{}` and is
+ * warned about: one malformed MCP entry should cost you that server, not the
+ * ability to start the process.
+ */
+const jsonObject = z.preprocess((value) => {
+  if (typeof value !== "string" || !value.trim()) return {};
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    console.warn("[config] MCP_SERVERS is not valid JSON — no MCP servers will be loaded");
+    return {};
+  }
+}, z.record(z.string(), z.unknown()));
+
 const schema = z.object({
   OPENROUTER_API_KEY: optionalStr,
   OPENROUTER_BASE_URL: str("https://openrouter.ai/api/v1"),
@@ -105,6 +121,10 @@ const schema = z.object({
   SEARCH_REGION: str("us-en"),
   SEARCH_SAFE_SEARCH: z.enum(SAFE_SEARCH_LEVELS).catch("moderate"),
   SCRAPE_MAX_CHARS: numeric(8000),
+
+  // MCP servers to connect to, as JSON:
+  //   {"fs":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/tmp"]}}
+  MCP_SERVERS: jsonObject,
 
   DATABASE_URL: optionalStr,
 
@@ -184,6 +204,12 @@ export interface Config {
     safeSearch: SafeSearch;
     scrapeMaxChars: number;
   };
+  /**
+   * MCP servers, keyed by the name their tools are namespaced under. Values are
+   * `McpServerConfig` from `@mini-agent/mcp` — kept loose here so config keeps
+   * depending on nothing.
+   */
+  mcp: { servers: Record<string, McpServer> };
   db: { url?: string };
   api: { port: number; jwtSecret?: string; jwtExpiresIn: string };
   web: { apiUrl: string };
@@ -208,6 +234,14 @@ export interface Config {
     schedulerEnabled: boolean;
     schedulerTickMs: number;
   };
+}
+
+/** How to start one MCP server. It is a child process, so this is a command line. */
+export interface McpServer {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  timeoutMs?: number;
 }
 
 /** A schedule the system owns. `key` is its stable identity across restarts. */
@@ -276,6 +310,7 @@ export function getConfig(): Config {
       safeSearch: env.SEARCH_SAFE_SEARCH,
       scrapeMaxChars: env.SCRAPE_MAX_CHARS,
     },
+    mcp: { servers: env.MCP_SERVERS as Record<string, McpServer> },
     db: { url: env.DATABASE_URL },
     api: { port: env.PORT, jwtSecret: env.JWT_SECRET, jwtExpiresIn: env.JWT_EXPIRES_IN },
     web: { apiUrl: env.API_URL },

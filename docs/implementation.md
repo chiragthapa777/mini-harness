@@ -26,7 +26,7 @@ run actually works step by step (the loop, tool calls, working memory), see
 | Background job runner (queue + worker) | Built (`packages/jobs`, `apps/worker`) |
 | Cron / scheduled jobs | Built (`packages/jobs` scheduler, `scheduled_jobs`) |
 | Named agent personas (per-persona system prompt/config) | Not built — one global `SYSTEM_PROMPT` today (TODO 16) |
-| MCP support | Not built (TODO 14) |
+| MCP support | Built (`packages/mcp`, stdio transport) |
 
 ---
 
@@ -300,7 +300,31 @@ Schema (`schema.sql`, applied on first boot of an empty Postgres volume):
 | `jobs` | background work — type, payload, status, attempts, backoff schedule, dedupe key, result |
 | `scheduled_jobs` | cron schedules — system (from config, keyed) and user (prompt + cadence), with `next_run_at` and the last job fired |
 
-### 3.7 `packages/search`
+### 3.7 `packages/mcp` — MCP tools, as our tools
+
+A minimal MCP client over the stdio transport: JSON-RPC 2.0 in newline-delimited JSON
+over a child process, which is three methods' worth of protocol (`initialize`,
+`tools/list`, `tools/call`) for what the harness needs. Written rather than vendored —
+owning it keeps the package from quietly growing into a second agent framework.
+
+- **`client.ts`** — handshake, request/response correlation by id, per-request timeouts
+  (a hung server must not hang a run), and dead-process handling that fails every pending
+  request instead of leaving them waiting. A server's stderr is surfaced tagged; non-JSON
+  on stdout is skipped rather than treated as a protocol error, because servers that log
+  to stdout are common.
+- **`schema.ts`** — JSON Schema → zod, preserving what the loop actually uses (names,
+  rough types, descriptions, required-ness). Unsupported constructs degrade to `unknown`:
+  a tool with a loose schema is still usable, one that throws on load is not.
+- **`tools.ts`** — renders MCP tools as ordinary `AgentTool`s, namespaced `server__tool`
+  since two servers may both publish a `search`. They go through the same ```tool_call
+  fence, catalog, and trace as every built-in tool — there is no provider-native function
+  calling here, so there is no second path for them to take. The `AgentTool` shape is
+  declared structurally rather than imported from core, which would make the dependency
+  circular. A server that will not start contributes no tools and does not fail the run.
+- Servers come from `MCP_SERVERS` (JSON, config-only — each entry is a command line).
+  `packages/agent`'s `toolsWithMcp` is what merges them into a run's tool list.
+
+### 3.8 `packages/search`
 
 Backend for the three web tools. `SearchProvider` interface, `DuckDuckGoProvider` the
 only implementation today (keyless). `guardedFetch`/`assertPublicUrl`
@@ -308,7 +332,7 @@ only implementation today (keyless). `guardedFetch`/`assertPublicUrl`
 model-chosen URLs and the network the harness runs in. `scrape.ts` strips boilerplate to
 markdown for `scrape_url`.
 
-### 3.8 `packages/config`
+### 3.9 `packages/config`
 
 The only file allowed to touch `process.env` (`src/index.ts`). Zod-validated,
 re-parsed on every `getConfig()` call (not cached at import time) so tests can stub
