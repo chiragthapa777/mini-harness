@@ -1,3 +1,4 @@
+import { getConfig } from "@mini-agent/config";
 import pg from "pg";
 
 const { Pool } = pg;
@@ -7,7 +8,7 @@ let pool: pg.Pool | undefined;
 /** Lazily created singleton pool. DATABASE_URL is read on first use. */
 export function db(): pg.Pool {
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
+    const connectionString = getConfig().db.url;
     if (!connectionString) throw new Error("DATABASE_URL is not set");
     pool = new Pool({ connectionString });
   }

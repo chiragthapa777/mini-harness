@@ -1,25 +1,20 @@
-import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import {
-  AIMessage,
-  HumanMessage,
-  SystemMessage,
-  type BaseMessage,
-} from "@langchain/core/messages";
+import type { ChatClient, Completion, Msg } from "@mini-agent/llm";
 import { chatModel } from "./provider.js";
 import { parseToolCalls, renderToolCatalog, renderToolResults } from "./protocol.js";
 import type { AgentTool, RunConfig, RunResult, StopReason, TraceStep, WorkingMemory } from "./types.js";
 
 /** Injection point for tests, and for callers that already hold a model. */
 export interface RunDeps {
-  model?: BaseChatModel;
+  model?: ChatClient;
 }
 
 /**
  * The agentic loop.
  *
- * LangChain supplies one thing: a single chat interface across providers.
- * The loop, the tool-calling protocol, the end-loop guardrails, and the trace
- * are the harness — ours, so behaviour does not change when the provider does.
+ * `@mini-agent/llm` supplies one thing: a single chat interface across
+ * providers. The loop, the tool-calling protocol, the end-loop guardrails, and
+ * the trace are the harness — ours, so behaviour does not change when the
+ * provider does.
  */
 export async function runAgent(
   wm: WorkingMemory,
@@ -29,13 +24,12 @@ export async function runAgent(
 ): Promise<RunResult> {
   const startedAt = Date.now();
   const byName = new Map(tools.map((t) => [t.name, t]));
-  const model =
-    deps.model ?? (await chatModel(config.provider, config.model, config.maxTokens));
+  const model = deps.model ?? chatModel(config.provider, config.model, config.maxTokens);
 
-  const messages: BaseMessage[] = [
-    new SystemMessage(buildSystem(wm, tools)),
+  const messages: Msg[] = [
+    { role: "system", content: buildSystem(wm, tools) },
     ...wm.history,
-    new HumanMessage(wm.userPrompt),
+    { role: "user", content: wm.userPrompt },
   ];
 
   const steps: TraceStep[] = [];
@@ -57,18 +51,18 @@ export async function runAgent(
       }
 
       const iterationStart = Date.now();
-      const response = (await model.invoke(messages)) as AIMessage;
+      const response = await model.invoke(messages);
 
-      inputTokens += response.usage_metadata?.input_tokens ?? 0;
-      outputTokens += response.usage_metadata?.output_tokens ?? 0;
-      messages.push(response);
+      inputTokens += response.usage.inputTokens;
+      outputTokens += response.usage.outputTokens;
+      messages.push({ role: "assistant", content: response.text });
 
-      const { calls, text } = parseToolCalls(textOf(response));
+      const { calls, text } = parseToolCalls(response.text);
 
       if (calls.length === 0) {
         reply = text;
         steps.push(step(iteration, [], response, iterationStart));
-        stopReason = finishReason(response) === "length" ? "length" : "end_turn";
+        stopReason = truncated(response.finishReason) ? "length" : "end_turn";
         break;
       }
 
@@ -93,7 +87,7 @@ export async function runAgent(
       }
 
       steps.push(step(iteration, traced, response, iterationStart));
-      messages.push(new HumanMessage(renderToolResults(results)));
+      messages.push({ role: "user", content: renderToolResults(results) });
     }
   } catch (err) {
     stopReason = "error";
@@ -133,34 +127,29 @@ export function buildSystem(wm: WorkingMemory, tools: AgentTool[]): string {
     .join("\n\n");
 }
 
-export function textOf(message: AIMessage): string {
-  if (typeof message.content === "string") return message.content;
-  return message.content
-    .map((block: unknown) => {
-      if (typeof block === "string") return block;
-      const part = block as { type?: string; text?: string };
-      return part.type === "text" ? (part.text ?? "") : "";
-    })
-    .join("");
-}
-
-export function finishReason(message: AIMessage): string | undefined {
-  const meta = message.response_metadata as Record<string, unknown> | undefined;
-  const reason = meta?.["finish_reason"] ?? meta?.["stop_reason"];
-  return typeof reason === "string" ? reason : undefined;
+/**
+ * "The model ran out of room" has a different name on every provider:
+ * `length` on OpenAI, `max_tokens` on Anthropic, `MAX_TOKENS` on Gemini.
+ * They all mean the reply is truncated, which is a different outcome from a
+ * finished turn and should not be traced as one.
+ */
+export function truncated(finishReason: string | undefined): boolean {
+  if (!finishReason) return false;
+  const reason = finishReason.toLowerCase();
+  return reason === "length" || reason === "max_tokens";
 }
 
 function step(
   iteration: number,
   toolCalls: TraceStep["toolCalls"],
-  response: AIMessage,
+  response: Completion,
   startedAt: number,
 ): TraceStep {
   return {
     iteration,
     toolCalls,
-    inputTokens: response.usage_metadata?.input_tokens ?? 0,
-    outputTokens: response.usage_metadata?.output_tokens ?? 0,
+    inputTokens: response.usage.inputTokens,
+    outputTokens: response.usage.outputTokens,
     latencyMs: Date.now() - startedAt,
   };
 }

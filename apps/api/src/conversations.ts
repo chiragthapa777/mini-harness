@@ -33,13 +33,15 @@ export async function createConversation(userId: string, title?: string): Promis
   return row.id;
 }
 
-export async function conversationMessages(conversationId: string) {
+/** Joined against `conversations` so a message list can never leak across users. */
+export async function conversationMessages(conversationId: string, userId: string) {
   return query<{ id: string; role: string; content: string; created_at: Date }>(
-    `SELECT id::text, role, content #>> '{}' AS content, created_at
-       FROM messages
-      WHERE conversation_id = $1
-      ORDER BY created_at ASC, id ASC`,
-    [conversationId],
+    `SELECT m.id::text, m.role, m.content #>> '{}' AS content, m.created_at
+       FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id
+      WHERE m.conversation_id = $1 AND c.user_id = $2
+      ORDER BY m.created_at ASC, m.id ASC`,
+    [conversationId, userId],
   );
 }
 

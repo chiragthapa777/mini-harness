@@ -20,5 +20,35 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: mini-agent-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Inside the compose network, Postgres is reachable as `postgres:5432`
+      # — the host-mapped POSTGRES_PORT above is only for tools on the host.
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-mini_agent}
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: mini-agent-web
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
 volumes:
   postgres-data:

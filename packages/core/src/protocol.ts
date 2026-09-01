@@ -4,8 +4,8 @@ import type { AgentTool } from "./types.js";
 /**
  * Our own tool-calling protocol.
  *
- * LangChain is the chat transport and nothing more — we do not use its
- * `bindTools` / provider-native function calling. The agent asks for a tool by
+ * `@mini-agent/llm` is the chat transport and nothing more — no provider-native
+ * function calling, no tool schemas on the wire. The agent asks for a tool by
  * emitting a fenced `tool_call` block; the harness parses it, runs the handler,
  * and feeds the result back. One wire format across every provider, and the
  * exact bytes are ours to trace and replay.

@@ -1,3 +1,4 @@
+import { getConfig } from "@mini-agent/config";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
@@ -10,7 +11,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/api": {
-        target: process.env.API_URL ?? "http://localhost:3001",
+        target: getConfig().web.apiUrl,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },

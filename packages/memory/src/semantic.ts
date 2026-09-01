@@ -1,7 +1,8 @@
+import { getConfig } from "@mini-agent/config";
 import { query, toVector } from "@mini-agent/db";
 import { embed } from "./embeddings.js";
 
-const TOP_K = Number(process.env.RAG_TOP_K ?? 5);
+const TOP_K = getConfig().memory.ragTopK;
 
 export interface Fact {
   id: string;

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { AIMessage, type BaseMessage } from "@langchain/core/messages";
+import type { ChatClient, Msg } from "@mini-agent/llm";
 import { z } from "zod";
 import { runAgent } from "../src/loop.js";
 import type { AgentTool, RunConfig, WorkingMemory } from "../src/types.js";
@@ -42,21 +41,22 @@ const exploding: AgentTool = {
 
 /** A scripted chat model. Replaces the provider so the loop is testable offline. */
 function fakeModel(replies: string[]) {
-  const seen: BaseMessage[][] = [];
+  const seen: Msg[][] = [];
   let index = 0;
 
   const model = {
-    async invoke(messages: BaseMessage[]) {
+    async invoke(messages: Msg[]) {
       seen.push([...messages]);
-      const content = replies[Math.min(index++, replies.length - 1)] ?? "";
-      return new AIMessage({
-        content,
-        usage_metadata: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
-      });
+      return {
+        text: replies[Math.min(index++, replies.length - 1)] ?? "",
+        thinking: "",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        finishReason: "stop",
+      };
     },
   };
 
-  return { model: model as unknown as BaseChatModel, seen, calls: () => index };
+  return { model: model as unknown as ChatClient, seen, calls: () => index };
 }
 
 const callBlock = (tool: string, input: Record<string, unknown>) =>
@@ -169,7 +169,7 @@ test("provider failure is captured in the trace, not thrown", async () => {
     async invoke() {
       throw new Error("provider down");
     },
-  } as unknown as BaseChatModel;
+  } as unknown as ChatClient;
 
   const { reply, trace } = await runAgent(wm, [echo], config, { model });
 
@@ -178,19 +178,39 @@ test("provider failure is captured in the trace, not thrown", async () => {
   assert.equal(trace.error, "provider down");
 });
 
-test("array content blocks are flattened into the reply", async () => {
-  const model = {
-    async invoke() {
-      return new AIMessage({
-        content: [
-          { type: "text", text: "part one " },
-          { type: "text", text: "part two" },
-        ],
-        usage_metadata: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
-      });
-    },
-  } as unknown as BaseChatModel;
+test("history is sent as-is between the system prompt and the user turn", async () => {
+  const fake = fakeModel(["ok"]);
+  const withHistory: WorkingMemory = {
+    ...wm,
+    history: [
+      { role: "user", content: "earlier question" },
+      { role: "assistant", content: "earlier answer" },
+    ],
+  };
 
-  const { reply } = await runAgent(wm, [echo], config, { model });
-  assert.equal(reply, "part one part two");
+  await runAgent(withHistory, [echo], config, { model: fake.model });
+
+  assert.deepEqual(fake.seen[0]?.slice(1), [
+    { role: "user", content: "earlier question" },
+    { role: "assistant", content: "earlier answer" },
+    { role: "user", content: "what time is it?" },
+  ]);
+});
+
+test("a truncated reply is traced as length, whatever the provider calls it", async () => {
+  for (const reason of ["length", "max_tokens", "MAX_TOKENS"]) {
+    const model = {
+      async invoke() {
+        return {
+          text: "cut off mid-",
+          thinking: "",
+          usage: { inputTokens: 1, outputTokens: 1 },
+          finishReason: reason,
+        };
+      },
+    } as unknown as ChatClient;
+
+    const { trace } = await runAgent(wm, [echo], config, { model });
+    assert.equal(trace.stopReason, "length", `${reason} should map to length`);
+  }
 });

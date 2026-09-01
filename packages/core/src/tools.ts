@@ -1,3 +1,4 @@
+import { guardedFetch, scrape, search } from "@mini-agent/search";
 import { z } from "zod";
 import type { AgentTool } from "./types.js";
 
@@ -42,29 +43,83 @@ export const calculator: AgentTool = {
   },
 };
 
+/**
+ * The three web tools are deliberately separate rather than one do-everything
+ * tool: the model picks the step it needs and pays for nothing else.
+ *
+ *   web_search  find pages when there is no URL yet — titles, URLs, snippets
+ *   scrape_url  read one normal web page, boilerplate removed
+ *   fetch_url   raw bytes of anything else — JSON, APIs, plain text
+ *
+ * All three fetch through the guard in `@mini-agent/search`, which is the only
+ * thing standing between model-chosen URLs and our own network.
+ */
+
+export const webSearch: AgentTool = {
+  name: "web_search",
+  description:
+    "Search the web and get back titles, URLs, and short snippets. " +
+    "Use this for anything current, anything you are unsure about, or whenever " +
+    "you need a URL you do not already have. Snippets are only a preview — " +
+    "call scrape_url on a result to actually read it.",
+  schema: z.object({
+    query: z.string().describe("Search terms, as you would type them into a search box"),
+    maxResults: z.number().optional().describe("How many results to return (default 5)"),
+  }),
+  async run({ query, maxResults }) {
+    const response = await search(String(query), {
+      ...(typeof maxResults === "number" ? { maxResults } : {}),
+    });
+
+    if (!response.results.length) {
+      return response.answer ?? `no results for: ${response.query}`;
+    }
+
+    const blocks = response.results.map(
+      (result, index) => `${index + 1}. ${result.title}\n   ${result.url}\n   ${result.snippet}`,
+    );
+    return [response.answer && `answer: ${response.answer}`, ...blocks]
+      .filter(Boolean)
+      .join("\n");
+  },
+};
+
+export const scrapeUrl: AgentTool = {
+  name: "scrape_url",
+  description:
+    "Read one web page and get its main content back as markdown, with " +
+    "navigation, headers, footers, and sidebars removed. Use this to read an " +
+    "article, a docs page, or any search result. Links in the text are kept, " +
+    "so you can follow them with another scrape_url call.",
+  schema: z.object({
+    url: z.string().describe("Absolute http(s) URL"),
+    maxChars: z.number().optional().describe("Truncate the content (default 8000)"),
+  }),
+  async run({ url, maxChars }) {
+    const result = await scrape(String(url), {
+      ...(typeof maxChars === "number" ? { maxChars } : {}),
+    });
+
+    const header = result.title ? `# ${result.title}\n${result.url}\n` : `${result.url}\n`;
+    return `${header}\n${result.content}${result.truncated ? "\n…[truncated]" : ""}`;
+  },
+};
+
 export const fetchUrl: AgentTool = {
   name: "fetch_url",
   description:
-    "Fetch a URL and return its text content, with HTML tags stripped. " +
-    "Use this to read a page the user linked to or that you found.",
+    "Fetch a URL and return its raw text, with HTML tags stripped. " +
+    "Use this for JSON APIs, plain text, feeds, and anything that is not an " +
+    "article — for a normal web page, scrape_url gives cleaner output.",
   schema: z.object({
     url: z.string().describe("Absolute http(s) URL"),
     maxChars: z.number().optional().describe("Truncate the result (default 4000)"),
   }),
   async run({ url, maxChars }) {
-    const target = new URL(String(url));
-    if (target.protocol !== "http:" && target.protocol !== "https:") {
-      throw new Error("only http and https URLs are supported");
-    }
+    // Scheme, private-address, redirect, and size limits all live in the guard.
+    const response = await guardedFetch(String(url), { timeoutMs: 15_000 });
 
-    const response = await fetch(target, {
-      headers: { "user-agent": "mini-agent/0.1" },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-
-    const body = await response.text();
-    const text = body
+    const text = response.body
       .replace(/<script[\s\S]*?<\/script>/gi, " ")
       .replace(/<style[\s\S]*?<\/style>/gi, " ")
       .replace(/<[^>]+>/g, " ")
@@ -76,8 +131,7 @@ export const fetchUrl: AgentTool = {
   },
 };
 
-/** Tools that need no per-user context. Memory tools are built per run. */
-export const defaultTools: AgentTool[] = [clock, calculator, fetchUrl];
+
 
 /**
  * Shunting-yard evaluation. A parser rather than `eval` so model output is
@@ -102,11 +156,11 @@ function evaluate(expr: string): number {
     if ((op === "/" || op === "%") && b === 0) throw new Error("division by zero");
     values.push(
       op === "+" ? a + b
-      : op === "-" ? a - b
-      : op === "*" ? a * b
-      : op === "/" ? a / b
-      : op === "%" ? a % b
-      : a ** b,
+        : op === "-" ? a - b
+          : op === "*" ? a * b
+            : op === "/" ? a / b
+              : op === "%" ? a % b
+                : a ** b,
     );
   };
 
@@ -145,3 +199,6 @@ function evaluate(expr: string): number {
   if (result === undefined || values.length) throw new Error("malformed expression");
   return result;
 }
+
+/** Tools that need no per-user context. Memory tools are built per run. */
+export const defaultTools: AgentTool[] = [clock, calculator, webSearch, scrapeUrl, fetchUrl];

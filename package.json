@@ -11,7 +11,8 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "db:schema": "psql postgres://postgres:postgres@localhost:5433/mini_agent -f packages/db/schema.sql",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "pw:generate":"pnpm --filter @mini-agent/api hash-password"
   },
   "devDependencies": {
     "typescript": "^5.7.2"

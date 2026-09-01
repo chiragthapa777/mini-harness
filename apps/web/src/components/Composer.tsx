@@ -42,7 +42,8 @@ export function Composer({ busy, onSend, onStop, placeholder }: Props) {
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder={placeholder ?? "Send a message…  (Enter to send, Shift+Enter for a new line)"}
+        placeholder={placeholder ?? "Send a message…"}
+        title={placeholder ?? "Send a message… (Enter to send, Shift+Enter for a new line)"}
         className="flex-1 resize-none rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900"
       />
       {busy && onStop ? (

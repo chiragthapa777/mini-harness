@@ -69,6 +69,20 @@ flowchart TB
 
 - **LLM — chat agent** — Claude, GPT, or Gemini class model. Each iteration: call a tool, or answer.
 - **Tool access** — exposed via function calling or MCP: web search, fetching information from APIs, file system access. Tool responses re-enter the loop as new context.
+Web access is three separate tools rather than one, so the model pays only for
+the step it needs: `web_search` finds pages (titles, URLs, snippets),
+`scrape_url` reads one page as markdown with the chrome stripped, and
+`fetch_url` returns raw bytes for JSON and plain text. The backends live in
+`packages/search` behind a `SearchProvider` interface — DuckDuckGo today,
+keyless; adding Tavily or a self-hosted SearXNG is one file plus one registry
+entry, with no change above.
+
+Every outbound fetch goes through the guard in `packages/search/src/http.ts`.
+URLs here come from model output, and the harness runs inside our network, so
+private and loopback addresses are refused on each redirect hop — otherwise
+`fetch_url` is an SSRF primitive aimed at our own Postgres and at the cloud
+metadata endpoint.
+
 - **End Loop Guardrails** — termination conditions: max iterations, token/cost budget, output validation, safety checks. Without them the loop can spin forever.
 - **Reply** — goes to the user, **and** is saved to the episodic database, **and** is stored as a trace in LLM Ops.
 

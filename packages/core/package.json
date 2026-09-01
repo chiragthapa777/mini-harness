@@ -13,11 +13,10 @@
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@langchain/anthropic": "^1.5.8",
-    "@langchain/core": "^1.2.9",
-    "@langchain/google-genai": "^2.3.0",
-    "@langchain/openai": "^1.5.10",
+    "@mini-agent/config": "workspace:*",
+    "@mini-agent/llm": "workspace:*",
     "@mini-agent/memory": "workspace:*",
+    "@mini-agent/search": "workspace:*",
     "zod": "^4.0.0"
   },
   "devDependencies": {

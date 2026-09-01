@@ -17,15 +17,24 @@ those pieces live in.
 | Vector store | Postgres (`pgvector`) — same database, not a separate vector DB |
 | Styling | Tailwind |
 | Layout | Monorepo — many apps and packages |
-| LLM access | LangChain, as a chat transport only |
+| LLM access | `packages/llm` — our own chat transport over the official provider SDKs |
 | Provider | OpenRouter (OpenAI wire format), default model `z-ai/glm-5.3-flash` |
 
-**LangChain is a transport, not a framework here.** It gives us one chat
-interface across providers and nothing else. The loop, the tool-calling
-protocol, the guardrails, and the traces are ours — see `packages/core`.
-Tool calls do **not** use provider-native function calling: the agent emits a
-fenced ```` ```tool_call ```` block and the harness parses it, so the wire
-format is identical on every model.
+**`packages/llm` is a transport, not a framework.** It gives us one chat
+interface across providers and nothing else: `ChatClient` is two methods,
+`invoke` and `stream`, over plain `{ role, content }` messages. The loop, the
+tool-calling protocol, the guardrails, and the traces are ours — see
+`packages/core`. Tool calls do **not** use provider-native function calling:
+the agent emits a fenced ```` ```tool_call ```` block and the harness parses
+it, so the wire format is identical on every model.
+
+`packages/llm` is the **only** place a provider is named. It wraps the official
+SDKs (`openai`, `@anthropic-ai/sdk`, `@google/genai`), imported lazily so a run
+loads only the SDK it needs. Nothing above it may import a provider SDK
+directly — if a file outside `packages/llm` names a vendor, that is a bug. There
+is no LangChain — it was removed once it became clear the only thing being used
+was the chat interface, and its message abstraction was dropping OpenRouter's
+reasoning deltas on the way through.
 
 No other frameworks or datastores without asking first. Postgres covers both the relational
 side (episodic recency queries) and the embedding side (RAG top-k).
@@ -35,7 +44,7 @@ side (episodic recency queries) and the embedding side (RAG top-k).
 Monorepo. Deployables in `apps/`, shared code in `packages/`.
 
 - `apps/` — gateway surfaces (TUI, web app, chat bots) and the API server.
-- `packages/` — harness core (loop, tools, memory), shared types, db/schema, UI kit.
+- `packages/` — harness core (loop, tools, memory), chat transport (`llm`), shared types, db/schema, UI kit.
 - `docs/` — architecture.
 
 Anything imported by more than one app belongs in `packages/`, not copied between apps.

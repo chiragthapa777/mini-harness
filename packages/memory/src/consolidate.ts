@@ -1,7 +1,8 @@
+import { getConfig } from "@mini-agent/config";
 import { markConsolidated, unconsolidated, type StoredMessage } from "./episodic.js";
 import { writeFact } from "./semantic.js";
 
-const AFTER_N_MESSAGES = Number(process.env.CONSOLIDATE_AFTER_N_MESSAGES ?? 20);
+const AFTER_N_MESSAGES = getConfig().memory.consolidateAfterNMessages;
 
 /** Distills raw messages into durable facts. A cheap model is enough. */
 export type Summarizer = (messages: StoredMessage[]) => Promise<string[]>;

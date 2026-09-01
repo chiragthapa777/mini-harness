@@ -1,7 +1,8 @@
+import { getConfig } from "@mini-agent/config";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-const SKILLS_DIR = process.env.SKILLS_DIR ?? "skills";
+const SKILLS_DIR = getConfig().memory.skillsDir;
 
 /**
  * Procedural memory — how to act. Plain files (`skills.md`, workflows, rules

@@ -1,6 +1,5 @@
-import type { AIMessageChunk } from "@langchain/core/messages";
-import { AIMessage, HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
-import { buildSystem, type RunDeps } from "./loop.js";
+import type { Msg } from "@mini-agent/llm";
+import { buildSystem, truncated, type RunDeps } from "./loop.js";
 import { chatModel } from "./provider.js";
 import { ToolCallTextFilter, parseToolCalls, renderToolResults } from "./protocol.js";
 import type {
@@ -29,13 +28,12 @@ export async function* runAgentStream(
 ): AsyncGenerator<RunEvent, void, undefined> {
   const startedAt = Date.now();
   const byName = new Map(tools.map((t) => [t.name, t]));
-  const model =
-    deps.model ?? (await chatModel(config.provider, config.model, config.maxTokens));
+  const model = deps.model ?? chatModel(config.provider, config.model, config.maxTokens);
 
-  const messages: BaseMessage[] = [
-    new SystemMessage(buildSystem(wm, tools)),
+  const messages: Msg[] = [
+    { role: "system", content: buildSystem(wm, tools) },
     ...wm.history,
-    new HumanMessage(wm.userPrompt),
+    { role: "user", content: wm.userPrompt },
   ];
 
   const steps: TraceStep[] = [];
@@ -69,21 +67,21 @@ export async function* runAgentStream(
       let stepOutput = 0;
       let finish: string | undefined;
 
-      for await (const chunk of await model.stream(messages)) {
-        const thinking = thinkingOf(chunk);
-        if (thinking) yield { type: "thinking_delta", text: thinking };
-
-        const text = chunkText(chunk);
-        if (text) {
-          raw += text;
+      for await (const delta of model.stream(messages)) {
+        if (delta.type === "thinking") {
+          yield { type: "thinking_delta", text: delta.text };
+        } else if (delta.type === "text") {
+          raw += delta.text;
           // Tool-call blocks are machinery, not prose — keep them off screen.
-          const visible = filter.push(text);
+          const visible = filter.push(delta.text);
           if (visible) yield { type: "text_delta", text: visible };
+        } else if (delta.type === "usage") {
+          // Adapters emit this once, with run totals for the turn.
+          stepInput = delta.usage.inputTokens;
+          stepOutput = delta.usage.outputTokens;
+        } else {
+          finish = delta.reason;
         }
-
-        stepInput += chunk.usage_metadata?.input_tokens ?? 0;
-        stepOutput += chunk.usage_metadata?.output_tokens ?? 0;
-        finish = finishOf(chunk) ?? finish;
       }
 
       const tail = filter.flush();
@@ -91,7 +89,7 @@ export async function* runAgentStream(
 
       inputTokens += stepInput;
       outputTokens += stepOutput;
-      messages.push(new AIMessage(raw));
+      messages.push({ role: "assistant", content: raw });
 
       const { calls, text } = parseToolCalls(raw);
 
@@ -111,7 +109,7 @@ export async function* runAgentStream(
           outputTokens: stepOutput,
           latencyMs: Date.now() - iterationStart,
         });
-        stopReason = finish === "length" ? "length" : "end_turn";
+        stopReason = truncated(finish) ? "length" : "end_turn";
         break;
       }
 
@@ -144,7 +142,7 @@ export async function* runAgentStream(
         outputTokens: stepOutput,
         latencyMs: Date.now() - iterationStart,
       });
-      messages.push(new HumanMessage(renderToolResults(results)));
+      messages.push({ role: "user", content: renderToolResults(results) });
     }
   } catch (err) {
     stopReason = "error";
@@ -168,49 +166,3 @@ export async function* runAgentStream(
   yield { type: "trace", trace };
 }
 
-function chunkText(chunk: AIMessageChunk): string {
-  if (typeof chunk.content === "string") return chunk.content;
-  return chunk.content
-    .map((block: unknown) => {
-      if (typeof block === "string") return block;
-      const part = block as { type?: string; text?: string };
-      return part.type === "text" ? (part.text ?? "") : "";
-    })
-    .join("");
-}
-
-/**
- * Reasoning tokens have no standard field yet — OpenRouter sends
- * `reasoning`, OpenAI-compatible hosts often send `reasoning_content`, and
- * Anthropic uses a `thinking` content block.
- */
-function thinkingOf(chunk: AIMessageChunk): string {
-  const extra = chunk.additional_kwargs as Record<string, unknown> | undefined;
-  const direct = extra?.["reasoning_content"] ?? extra?.["reasoning"];
-  if (typeof direct === "string" && direct) return direct;
-
-  // OpenRouter puts reasoning on `delta.reasoning`, which LangChain drops from
-  // the parsed chunk — hence the raw response passthrough.
-  const raw = extra?.["__raw_response"] as
-    | { choices?: { delta?: { reasoning?: string; reasoning_content?: string } }[] }
-    | undefined;
-  const delta = raw?.choices?.[0]?.delta;
-  const fromRaw = delta?.reasoning ?? delta?.reasoning_content;
-  if (typeof fromRaw === "string" && fromRaw) return fromRaw;
-
-  if (Array.isArray(chunk.content)) {
-    return chunk.content
-      .map((block: unknown) => {
-        const part = block as { type?: string; thinking?: string; text?: string };
-        return part?.type === "thinking" ? (part.thinking ?? part.text ?? "") : "";
-      })
-      .join("");
-  }
-  return "";
-}
-
-function finishOf(chunk: AIMessageChunk): string | undefined {
-  const meta = chunk.response_metadata as Record<string, unknown> | undefined;
-  const reason = meta?.["finish_reason"] ?? meta?.["stop_reason"];
-  return typeof reason === "string" ? reason : undefined;
-}

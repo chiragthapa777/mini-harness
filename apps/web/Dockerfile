@@ -1,0 +1,32 @@
+# --- build stage --------------------------------------------------------
+FROM node:22-alpine AS build
+
+RUN corepack enable && corepack prepare pnpm@10.18.3 --activate
+
+WORKDIR /app
+
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/config/package.json packages/config/package.json
+COPY packages/core/package.json packages/core/package.json
+COPY packages/db/package.json packages/db/package.json
+COPY packages/llm/package.json packages/llm/package.json
+COPY packages/memory/package.json packages/memory/package.json
+COPY packages/search/package.json packages/search/package.json
+
+RUN pnpm install --frozen-lockfile
+
+COPY apps/web apps/web
+COPY packages/config packages/config
+COPY tsconfig.base.json ./
+
+RUN pnpm --filter @mini-agent/web build
+
+# --- serve stage ---------------------------------------------------------
+FROM nginx:alpine
+
+COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+
+EXPOSE 80

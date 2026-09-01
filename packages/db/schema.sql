@@ -1,6 +1,24 @@
 -- Postgres is both the SQL store and the vector store.
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- ---------------------------------------------------------------------- auth
+
+CREATE TABLE IF NOT EXISTS users (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email                 text NOT NULL UNIQUE,
+  password_hash         text NOT NULL,
+  role                  text NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  failed_login_attempts int NOT NULL DEFAULT 0,
+  locked_until          timestamptz,
+  created_at            timestamptz NOT NULL DEFAULT now()
+);
+
+-- Covers databases created before these columns existed; a fresh CREATE TABLE
+-- above already has them, so these are no-ops there.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin'));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts int NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until timestamptz;
+
 -- ---------------------------------------------------------------- episodic
 -- Append-only log of what happened. Retrieval is RAG for relevance plus
 -- SQL for recency, which is why this table carries both an embedding and a

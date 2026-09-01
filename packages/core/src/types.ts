@@ -1,12 +1,13 @@
-import type { BaseMessage } from "@langchain/core/messages";
+import type { Msg, Provider } from "@mini-agent/llm";
 import type { z } from "zod";
 
 /**
- * LangChain is used for one thing only: talking to whichever provider.
- * `openrouter` is the OpenAI-compatible endpoint — same wire format, different
- * base URL and key, and every model OpenRouter fronts (GLM, Claude, GPT, …).
+ * `@mini-agent/llm` is the chat transport and nothing more: two methods over
+ * whichever provider, with `openrouter` fronting every model OpenRouter serves
+ * (GLM, Claude, GPT, …). `Provider` and `Msg` are re-exported so the rest of
+ * the harness keeps importing its types from one place.
  */
-export type Provider = "openrouter" | "anthropic" | "openai" | "google";
+export type { Msg, Provider };
 
 /** A tool the agent can call. The handler runs in the harness, not the model. */
 export interface AgentTool<S extends z.ZodObject<z.ZodRawShape> = z.ZodObject<z.ZodRawShape>> {
@@ -22,7 +23,7 @@ export interface WorkingMemory {
   procedural: string[];
   semantic: string[];
   episodic: string[];
-  history: BaseMessage[];
+  history: Msg[];
   userPrompt: string;
 }
 

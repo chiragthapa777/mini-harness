@@ -1,39 +1,16 @@
-import type { Embeddings } from "@langchain/core/embeddings";
-
-let cached: Embeddings | undefined;
-let warned = false;
+import { EMBEDDING_DIMENSIONS, embedQuery, embeddingsConfigured } from "@mini-agent/llm";
 
 /** Embedding dimension must match the vector(n) columns in schema.sql. */
-export const EMBEDDING_DIMENSIONS = 1536;
+export { EMBEDDING_DIMENSIONS, embeddingsConfigured };
 
-/**
- * Embeddings are configured separately from the chat provider, because
- * OpenRouter fronts chat models only — it has no embeddings endpoint. Point
- * EMBEDDINGS_API_KEY (plus EMBEDDINGS_BASE_URL for a non-OpenAI host) at
- * whatever serves them.
- */
-export function embeddingsConfigured(): boolean {
-  return Boolean(process.env.EMBEDDINGS_API_KEY ?? process.env.OPENAI_API_KEY);
-}
-
-export async function embeddings(): Promise<Embeddings> {
-  if (!cached) {
-    const { OpenAIEmbeddings } = await import("@langchain/openai");
-    const baseURL = process.env.EMBEDDINGS_BASE_URL;
-    cached = new OpenAIEmbeddings({
-      model: process.env.EMBEDDING_MODEL ?? "text-embedding-3-small",
-      dimensions: EMBEDDING_DIMENSIONS,
-      apiKey: process.env.EMBEDDINGS_API_KEY ?? process.env.OPENAI_API_KEY,
-      ...(baseURL ? { configuration: { baseURL } } : {}),
-    });
-  }
-  return cached;
-}
+let warned = false;
 
 /**
  * Returns null when embeddings are not configured. Callers fall back to plain
  * SQL recency: the agent keeps working with less relevant recall rather than
  * failing the run outright.
+ *
+ * The transport lives in `@mini-agent/llm`; this wrapper owns only that policy.
  */
 export async function embed(text: string): Promise<number[] | null> {
   if (!embeddingsConfigured()) {
@@ -46,5 +23,5 @@ export async function embed(text: string): Promise<number[] | null> {
     }
     return null;
   }
-  return (await embeddings()).embedQuery(text);
+  return embedQuery(text);
 }

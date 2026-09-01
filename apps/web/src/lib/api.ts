@@ -1,10 +1,25 @@
 import type { Conversation, StoredMessage, StreamEvent, Trace } from "./types.js";
 
-export const USER_ID = "local";
+const TOKEN_KEY = "mini-agent:token";
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  role: "user" | "admin";
+}
+
+export const getToken = (): string | null => localStorage.getItem(TOKEN_KEY);
+export const setToken = (token: string): void => localStorage.setItem(TOKEN_KEY, token);
+export const clearToken = (): void => localStorage.removeItem(TOKEN_KEY);
+
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...authHeaders() },
     ...init,
   });
   if (!response.ok) {
@@ -14,25 +29,45 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export const listConversations = () =>
-  json<Conversation[]>(`/conversations?userId=${USER_ID}`);
-
-export const createConversation = () =>
-  json<{ id: string }>("/conversations", {
+export const login = (email: string, password: string) =>
+  json<{ token: string; user: AuthUser }>("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ userId: USER_ID }),
+    body: JSON.stringify({ email, password }),
   });
 
-export const loadMessages = (id: string) =>
-  json<StoredMessage[]>(`/conversations/${id}/messages`);
+export const me = () => json<AuthUser>("/auth/me");
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  role: "user" | "admin";
+  failed_login_attempts: number;
+  locked_until: string | null;
+  created_at: string;
+}
+
+export const adminListUsers = () => json<AdminUser[]>("/admin/users");
+
+export const adminCreateUser = (email: string, password: string, role: "user" | "admin") =>
+  json<{ id: string; email: string; role: "user" | "admin" }>("/admin/users", {
+    method: "POST",
+    body: JSON.stringify({ email, password, role }),
+  });
+
+export const listConversations = () => json<Conversation[]>("/conversations");
+
+export const createConversation = () =>
+  json<{ id: string }>("/conversations", { method: "POST" });
+
+export const loadMessages = (id: string) => json<StoredMessage[]>(`/conversations/${id}/messages`);
 
 export const deleteConversation = (id: string) =>
-  fetch(`/api/conversations/${id}?userId=${USER_ID}`, { method: "DELETE" });
+  fetch(`/api/conversations/${id}`, { method: "DELETE", headers: authHeaders() });
 
 export const sendChat = (prompt: string, conversationId?: string) =>
   json<{ conversationId: string; reply: string; trace: Trace }>("/chat", {
     method: "POST",
-    body: JSON.stringify({ userId: USER_ID, conversationId, prompt }),
+    body: JSON.stringify({ conversationId, prompt }),
   });
 
 /**
@@ -46,8 +81,8 @@ export async function* streamChat(
 ): AsyncGenerator<StreamEvent, void, undefined> {
   const response = await fetch("/api/chat/stream", {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ userId: USER_ID, conversationId, prompt }),
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ conversationId, prompt }),
     signal,
   });
 

@@ -8,9 +8,4 @@ export {
   type StoredMessage,
 } from "./episodic.js";
 export { consolidate, type Summarizer } from "./consolidate.js";
-export {
-  embed,
-  embeddings,
-  embeddingsConfigured,
-  EMBEDDING_DIMENSIONS,
-} from "./embeddings.js";
+export { embed, embeddingsConfigured, EMBEDDING_DIMENSIONS } from "./embeddings.js";

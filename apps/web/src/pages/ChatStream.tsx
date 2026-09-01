@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { ChatMenu } from "../components/ChatMenu.js";
 import { Composer } from "../components/Composer.js";
+import { MenuButton } from "../components/Layout.js";
 import { Message } from "../components/Message.js";
 import { loadMessages, streamChat } from "../lib/api.js";
-import type { ToolCallView, Turn } from "../lib/types.js";
+import type { LayoutContext, ToolCallView, Turn } from "../lib/types.js";
 
 /**
  * The streaming path. Everything the harness does arrives as it happens:
@@ -13,6 +15,7 @@ import type { ToolCallView, Turn } from "../lib/types.js";
 export function ChatStream() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { toggleSidebar } = useOutletContext<LayoutContext>();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
@@ -171,9 +174,10 @@ export function ChatStream() {
 
   return (
     <>
-      <header className="flex items-center gap-2 border-b border-neutral-200 px-6 py-3 text-sm font-medium dark:border-neutral-800">
+      <header className="flex items-center gap-2 border-b border-neutral-200 px-3 py-3 text-sm font-medium sm:px-6 dark:border-neutral-800">
+        <MenuButton onClick={toggleSidebar} />
         Streaming
-        <span className="text-xs font-normal text-neutral-400">
+        <span className="hidden text-xs font-normal text-neutral-400 sm:inline">
           thinking, tools, and text as they happen
         </span>
         {status && (
@@ -181,9 +185,10 @@ export function ChatStream() {
             {status}
           </span>
         )}
+        <ChatMenu mode="stream" conversationId={id} />
       </header>
 
-      <div className="flex-1 space-y-5 overflow-y-auto px-6 py-6">
+      <div className="flex-1 space-y-5 overflow-y-auto px-3 py-6 sm:px-6">
         {turns.length === 0 && (
           <p className="mt-20 text-center text-sm text-neutral-400">
             Ask something to start this conversation.
@@ -195,7 +200,7 @@ export function ChatStream() {
         <div ref={bottom} />
       </div>
 
-      <div className="border-t border-neutral-200 px-6 py-4 dark:border-neutral-800">
+      <div className="border-t border-neutral-200 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 dark:border-neutral-800">
         <Composer
           busy={busy}
           onSend={(p) => void send(p)}

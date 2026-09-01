@@ -1,3 +1,8 @@
+export interface LayoutContext {
+  refresh(): Promise<void>;
+  toggleSidebar(): void;
+}
+
 export interface Conversation {
   id: string;
   title: string | null;

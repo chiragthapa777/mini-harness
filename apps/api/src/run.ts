@@ -1,4 +1,3 @@
-import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import {
   PROMPT_VERSION,
   SYSTEM_PROMPT,
@@ -69,9 +68,10 @@ async function workingMemory(userId: string, prompt: string): Promise<WorkingMem
     procedural,
     semantic: facts.map((f) => f.content),
     episodic: episodes.map((e) => `${e.created_at.toISOString()} ${e.role}: ${e.content}`),
-    history: episodes.map((m) =>
-      m.role === "assistant" ? new AIMessage(m.content) : new HumanMessage(m.content),
-    ),
+    history: episodes.map((m) => ({
+      role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
+      content: m.content,
+    })),
     userPrompt: prompt,
   };
 }

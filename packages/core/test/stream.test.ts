@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { AIMessageChunk } from "@langchain/core/messages";
+import type { ChatClient, Delta } from "@mini-agent/llm";
 import { z } from "zod";
 import { runAgentStream } from "../src/stream.js";
 import { ToolCallTextFilter } from "../src/protocol.js";
@@ -32,31 +31,29 @@ const echo: AgentTool = {
   },
 };
 
-/** Splits scripted replies into single characters, worst case for the filter. */
+/**
+ * Splits scripted replies into single characters, worst case for the filter.
+ * Follows the adapter contract: one usage delta with turn totals, then finish.
+ */
 function streamingModel(turns: string[], reasoning: string[] = []) {
   let turn = 0;
 
   const model = {
-    async stream(_messages: unknown) {
+    stream(_messages: unknown): AsyncGenerator<Delta, void, undefined> {
       const text = turns[Math.min(turn, turns.length - 1)] ?? "";
       const think = reasoning[turn] ?? "";
       turn += 1;
 
       return (async function* () {
-        if (think) {
-          yield new AIMessageChunk({ content: "", additional_kwargs: { reasoning: think } });
-        }
-        for (const char of text) yield new AIMessageChunk({ content: char });
-        yield new AIMessageChunk({
-          content: "",
-          usage_metadata: { input_tokens: 10, output_tokens: 4, total_tokens: 14 },
-          response_metadata: { finish_reason: "stop" },
-        });
+        if (think) yield { type: "thinking", text: think };
+        for (const char of text) yield { type: "text", text: char };
+        yield { type: "usage", usage: { inputTokens: 10, outputTokens: 4 } };
+        yield { type: "finish", reason: "stop" };
       })();
     },
   };
 
-  return model as unknown as BaseChatModel;
+  return model as unknown as ChatClient;
 }
 
 async function collect(gen: AsyncGenerator<RunEvent>): Promise<RunEvent[]> {
@@ -165,10 +162,10 @@ test("guardrail event fires when iterations run out", async () => {
 
 test("provider failures stream as an error event and still emit a trace", async () => {
   const model = {
-    async stream() {
+    async *stream() {
       throw new Error("stream exploded");
     },
-  } as unknown as BaseChatModel;
+  } as unknown as ChatClient;
 
   const events = await collect(runAgentStream(wm, [echo], config, { model }));
   const error = events.find((e) => e.type === "error");
