@@ -29,6 +29,7 @@ export interface TraceStep {
 export interface Trace {
   provider: string;
   model: string;
+  systemPrompt: string;
   iterations: number;
   inputTokens: number;
   outputTokens: number;

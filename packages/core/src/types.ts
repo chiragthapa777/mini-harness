@@ -59,6 +59,8 @@ export interface TraceStep {
 export interface Trace {
   provider: Provider;
   model: string;
+  /** Fully assembled system prompt actually sent to the model this run. */
+  systemPrompt: string;
   iterations: number;
   inputTokens: number;
   outputTokens: number;

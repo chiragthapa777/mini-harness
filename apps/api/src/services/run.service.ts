@@ -11,7 +11,7 @@ import {
 } from "@mini-agent/core";
 import { query } from "@mini-agent/db";
 import { loadProcedural, recall, saveMessage, searchFacts } from "@mini-agent/memory";
-import { toolsFor } from "./tools.js";
+import { toolsFor } from "./tools.service.js";
 
 export interface RunRequest {
   userId: string;
@@ -94,14 +94,16 @@ async function saveTrace(
   trace: Trace,
 ): Promise<void> {
   await query(
-    `INSERT INTO traces (conversation_id, user_id, model, prompt_version, iterations,
-                         input_tokens, output_tokens, latency_ms, stop_reason, error, steps)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)`,
+    `INSERT INTO traces (conversation_id, user_id, model, prompt_version, system_prompt,
+                         iterations, input_tokens, output_tokens, latency_ms, stop_reason,
+                         error, steps)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
     [
       conversationId,
       userId,
       `${trace.provider}/${trace.model}`,
       PROMPT_VERSION,
+      trace.systemPrompt,
       trace.iterations,
       trace.inputTokens,
       trace.outputTokens,

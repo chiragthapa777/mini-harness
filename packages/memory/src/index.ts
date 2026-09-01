@@ -1,5 +1,5 @@
 export { loadProcedural } from "./procedural.js";
-export { searchFacts, writeFact, type Fact } from "./semantic.js";
+export { searchFacts, writeFact, listFacts, type Fact, type AdminFact } from "./semantic.js";
 export {
   recall,
   saveMessage,

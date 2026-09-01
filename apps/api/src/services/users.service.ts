@@ -85,3 +85,15 @@ export async function recordSuccessfulLogin(id: string): Promise<void> {
     id,
   ]);
 }
+
+/** Admin control: promote/demote a role. */
+export async function setUserRole(id: string, role: UserRole): Promise<void> {
+  await query(`UPDATE users SET role = $2 WHERE id = $1`, [id, role]);
+}
+
+/** Admin control: clear a lockout without waiting it out. */
+export async function unlockUser(id: string): Promise<void> {
+  await query(`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1`, [
+    id,
+  ]);
+}

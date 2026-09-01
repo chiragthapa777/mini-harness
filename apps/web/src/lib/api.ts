@@ -54,6 +54,72 @@ export const adminCreateUser = (email: string, password: string, role: "user" | 
     body: JSON.stringify({ email, password, role }),
   });
 
+export const adminUpdateUser = (id: string, patch: { role?: "user" | "admin"; unlock?: boolean }) =>
+  json<{ id: string; email: string; role: "user" | "admin" }>(`/admin/users/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
+export interface AdminFact {
+  id: string;
+  user_id: string;
+  kind: string;
+  content: string;
+  source: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const adminListFacts = (
+  userId: string,
+  opts: { kind?: string; limit?: number; offset?: number } = {},
+) =>
+  json<{ facts: AdminFact[]; total: number }>(
+    `/admin/facts?${qs({ userId, ...opts })}`,
+  );
+
+export interface AdminTrace {
+  id: string;
+  conversation_id: string | null;
+  user_id: string;
+  model: string;
+  prompt_version: string | null;
+  iterations: number;
+  input_tokens: number;
+  output_tokens: number;
+  latency_ms: number | null;
+  stop_reason: string | null;
+  error: string | null;
+  created_at: string;
+}
+
+export interface AdminTraceDetail extends AdminTrace {
+  system_prompt: string | null;
+  steps: Trace["steps"];
+}
+
+export const adminListTraces = (
+  filters: {
+    userId?: string;
+    model?: string;
+    errorOnly?: boolean;
+    from?: string;
+    to?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+) => json<{ traces: AdminTrace[]; total: number }>(`/admin/traces?${qs(filters)}`);
+
+export const adminGetTrace = (id: string) => json<AdminTraceDetail>(`/admin/traces/${id}`);
+
+function qs(params: Record<string, string | number | boolean | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") search.set(key, String(value));
+  }
+  return search.toString();
+}
+
 export const listConversations = () => json<Conversation[]>("/conversations");
 
 export const createConversation = () =>

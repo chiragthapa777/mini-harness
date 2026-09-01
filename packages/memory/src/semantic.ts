@@ -43,6 +43,45 @@ export async function searchFacts(
   );
 }
 
+export interface AdminFact extends Fact {
+  user_id: string;
+  source: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+/**
+ * Admin listing — every fact for a user, newest first, no relevance ranking.
+ * This is "show me the memory", not retrieval for a prompt, so it takes no
+ * query vector and pages by offset instead of RAG top-k.
+ */
+export async function listFacts(
+  userId: string,
+  { kind, limit = 20, offset = 0 }: { kind?: string; limit?: number; offset?: number } = {},
+): Promise<{ facts: AdminFact[]; total: number }> {
+  const kindFilter = kind ? `AND kind = $2` : "";
+  const params = kind ? [userId, kind, limit, offset] : [userId, limit, offset];
+  const limitIdx = kind ? 3 : 2;
+  const offsetIdx = kind ? 4 : 3;
+
+  const [facts, countRows] = await Promise.all([
+    query<AdminFact>(
+      `SELECT id::text, user_id, kind, content, source, created_at, updated_at
+         FROM facts
+        WHERE user_id = $1 ${kindFilter}
+        ORDER BY updated_at DESC
+        LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params,
+    ),
+    query<{ count: string }>(
+      `SELECT count(*)::text FROM facts WHERE user_id = $1 ${kindFilter}`,
+      kind ? [userId, kind] : [userId],
+    ),
+  ]);
+
+  return { facts, total: Number(countRows[0]?.count ?? 0) };
+}
+
 /** Written by the summarizer agent, never by the run loop. */
 export async function writeFact(
   userId: string,

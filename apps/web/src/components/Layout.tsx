@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { deleteConversation, listConversations } from "../lib/api.js";
 import { useAuth } from "../lib/AuthContext.js";
 import type { Conversation } from "../lib/types.js";
@@ -9,12 +9,14 @@ export function Layout() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { id } = useParams();
-  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
-  const mode = location.pathname.startsWith("/stream") ? "stream" : "classic";
-  const base = mode === "stream" ? "/stream" : "";
+  // Response mode is a query param, not a path segment, so it survives
+  // sidebar navigation only if we carry it along ourselves.
+  const mode = searchParams.get("mode") === "stream" ? "stream" : "classic";
+  const modeSuffix = mode === "stream" ? "?mode=stream" : "";
 
   const refresh = useCallback(async () => {
     try {
@@ -35,7 +37,7 @@ export function Layout() {
 
   async function remove(conversationId: string) {
     await deleteConversation(conversationId);
-    if (conversationId === id) navigate(base || "/");
+    if (conversationId === id) navigate(`/${modeSuffix}`);
     void refresh();
   }
 
@@ -57,7 +59,7 @@ export function Layout() {
       >
         <div className="space-y-1.5 p-3">
           <Link
-            to={base || "/"}
+            to={`/${modeSuffix}`}
             onClick={() => setSidebarOpen(false)}
             className="block rounded-lg bg-blue-600 px-3 py-2 text-center text-sm font-medium text-white hover:bg-blue-700"
           >
@@ -81,7 +83,7 @@ export function Layout() {
           {conversations.map((conversation) => (
             <div key={conversation.id} className="group relative">
               <NavLink
-                to={`${base}/c/${conversation.id}`}
+                to={`/c/${conversation.id}${modeSuffix}`}
                 onClick={() => setSidebarOpen(false)}
                 className={({ isActive }) =>
                   `block truncate rounded-lg px-3 py-2 pr-8 text-sm ${

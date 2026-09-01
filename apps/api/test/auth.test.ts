@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import jwt from "jsonwebtoken";
-import { hashPassword, requireAdmin, requireAuth, signToken, verifyPassword, type AuthedRequest } from "../src/auth.js";
+import { requireAdmin, requireAuth, type AuthedRequest } from "../src/middleware/auth.middleware.js";
+import { hashPassword, signToken, verifyPassword } from "../src/services/auth.service.js";
 
 const previousSecret = process.env["JWT_SECRET"];
 

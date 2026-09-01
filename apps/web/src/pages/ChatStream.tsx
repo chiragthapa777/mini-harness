@@ -80,7 +80,7 @@ export function ChatStream() {
           case "conversation":
             if (!id) {
               ownNavigation.current = event.conversationId;
-              navigate(`/stream/c/${event.conversationId}`, { replace: true });
+              navigate(`/c/${event.conversationId}?mode=stream`, { replace: true });
             }
             break;
 

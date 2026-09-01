@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS traces (
   user_id        text NOT NULL,
   model          text NOT NULL,
   prompt_version text,
+  system_prompt  text,
   iterations     int NOT NULL DEFAULT 0,
   input_tokens   int NOT NULL DEFAULT 0,
   output_tokens  int NOT NULL DEFAULT 0,

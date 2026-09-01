@@ -30,8 +30,9 @@ export async function* runAgentStream(
   const byName = new Map(tools.map((t) => [t.name, t]));
   const model = deps.model ?? chatModel(config.provider, config.model, config.maxTokens);
 
+  const systemPrompt = buildSystem(wm, tools);
   const messages: Msg[] = [
-    { role: "system", content: buildSystem(wm, tools) },
+    { role: "system", content: systemPrompt },
     ...wm.history,
     { role: "user", content: wm.userPrompt },
   ];
@@ -153,6 +154,7 @@ export async function* runAgentStream(
   const trace: Trace = {
     provider: config.provider,
     model: config.model,
+    systemPrompt,
     iterations: steps.length,
     inputTokens,
     outputTokens,
