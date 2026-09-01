@@ -7,5 +7,13 @@ export {
   markConsolidated,
   type StoredMessage,
 } from "./episodic.js";
+export {
+  conversationMessages,
+  createConversation,
+  deleteConversation,
+  listConversations,
+  titleFromFirstMessage,
+  type ConversationRow,
+} from "./conversations.js";
 export { consolidate, type Summarizer } from "./consolidate.js";
 export { embed, embeddingsConfigured, EMBEDDING_DIMENSIONS } from "./embeddings.js";

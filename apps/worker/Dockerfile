@@ -1,4 +1,4 @@
-# Runs the API straight off TS source via tsx — no compile step, matches `pnpm dev`.
+# The job runner. Same image shape as the API — TS straight off source via tsx.
 FROM node:22-alpine
 
 RUN corepack enable && corepack prepare pnpm@10.18.3 --activate
@@ -21,18 +21,16 @@ COPY packages/search/package.json packages/search/package.json
 
 RUN pnpm install --frozen-lockfile
 
-COPY apps/api apps/api
+COPY apps/worker apps/worker
 COPY packages packages
 COPY skills skills
 
 ENV SKILLS_DIR=/app/skills
-ENV PORT=3001
-EXPOSE 3001
 
 # `pnpm start` runs `tsx --env-file=../../.env`; real config comes from compose
 # `environment`/`env_file`, which Node's --env-file never overrides — this file
 # just has to exist so the flag doesn't fail on a missing path.
 RUN touch /app/.env
 
-WORKDIR /app/apps/api
+WORKDIR /app/apps/worker
 CMD ["pnpm", "start"]

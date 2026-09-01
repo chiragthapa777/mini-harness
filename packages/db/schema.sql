@@ -111,3 +111,47 @@ CREATE INDEX IF NOT EXISTS traces_errors_idx ON traces (created_at DESC) WHERE e
 
 ALTER TABLE traces ADD COLUMN IF NOT EXISTS system_prompt text;
 
+-- -------------------------------------------------------------------- jobs
+-- Work that runs outside a request/response cycle. This one table is both the
+-- queue and the audit log: the status columns are the tracking, so a finished
+-- job is not deleted, it is a row with a terminal status the admin panel reads.
+--
+-- Claiming uses `FOR UPDATE SKIP LOCKED`, which is why no separate lock table
+-- or external broker is needed — Postgres is the queue.
+
+CREATE TABLE IF NOT EXISTS jobs (
+  id            bigserial PRIMARY KEY,
+  type          text NOT NULL,
+  -- null for maintenance work that belongs to no single user (sweeps)
+  user_id       text,
+  payload       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status        text NOT NULL DEFAULT 'queued'
+                CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
+  attempts      int NOT NULL DEFAULT 0,
+  max_attempts  int NOT NULL DEFAULT 3,
+  last_error    text,
+  -- collapses duplicate work: only one live job may hold a given key
+  dedupe_key    text,
+  result        jsonb,
+  scheduled_for timestamptz NOT NULL DEFAULT now(),
+  started_at    timestamptz,
+  finished_at   timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- The claim query's index: due, queued, oldest first.
+CREATE INDEX IF NOT EXISTS jobs_claim_idx
+  ON jobs (scheduled_for, id) WHERE status = 'queued';
+
+CREATE INDEX IF NOT EXISTS jobs_recency_idx ON jobs (created_at DESC);
+CREATE INDEX IF NOT EXISTS jobs_status_idx ON jobs (status, type);
+
+-- Enqueueing the same key twice while the first is still live is a no-op
+-- (`ON CONFLICT DO NOTHING`), so a sweep can run every tick without piling up.
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_dedupe_idx
+  ON jobs (dedupe_key) WHERE dedupe_key IS NOT NULL AND status IN ('queued', 'running');
+
+-- Recovering a stuck job needs the start time of everything still running.
+CREATE INDEX IF NOT EXISTS jobs_running_idx ON jobs (started_at) WHERE status = 'running';
+

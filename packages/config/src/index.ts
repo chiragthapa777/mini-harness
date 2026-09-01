@@ -33,6 +33,9 @@ function str(fallback: string) {
   );
 }
 
+/** Boolean env var that defaults to on: only the literal "false" turns it off. */
+const boolTrue = z.preprocess((value) => value !== "false", z.boolean());
+
 const optionalStr = z.preprocess(
   (value) => (typeof value === "string" && value !== "" ? value : undefined),
   z.string().optional(),
@@ -85,6 +88,16 @@ const schema = z.object({
 
   LOGIN_MAX_ATTEMPTS: numeric(5),
   LOGIN_LOCKOUT_MINUTES: numeric(15),
+
+  // Background work. `JOBS_ENABLED=false` makes producers do their work inline
+  // instead of enqueueing it, so the API stays fully functional with no worker.
+  JOBS_ENABLED: boolTrue,
+  JOB_POLL_INTERVAL_MS: numeric(2_000),
+  JOB_BATCH_SIZE: numeric(5),
+  JOB_MAX_ATTEMPTS: numeric(3),
+  JOB_RETRY_BASE_MS: numeric(30_000),
+  JOB_RETRY_MAX_MS: numeric(900_000),
+  JOB_STALE_AFTER_MS: numeric(600_000),
 });
 
 export interface Config {
@@ -125,6 +138,16 @@ export interface Config {
   bootstrapAdmin: { email?: string; password?: string };
   /** Lockout policy after repeated failed logins. */
   auth: { maxLoginAttempts: number; lockoutMinutes: number };
+  /** Background job runner. `enabled: false` keeps every producer inline. */
+  jobs: {
+    enabled: boolean;
+    pollIntervalMs: number;
+    batchSize: number;
+    maxAttempts: number;
+    retryBaseMs: number;
+    retryMaxMs: number;
+    staleAfterMs: number;
+  };
 }
 
 export function getConfig(): Config {
@@ -175,5 +198,14 @@ export function getConfig(): Config {
     web: { apiUrl: env.API_URL },
     bootstrapAdmin: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
     auth: { maxLoginAttempts: env.LOGIN_MAX_ATTEMPTS, lockoutMinutes: env.LOGIN_LOCKOUT_MINUTES },
+    jobs: {
+      enabled: env.JOBS_ENABLED,
+      pollIntervalMs: env.JOB_POLL_INTERVAL_MS,
+      batchSize: env.JOB_BATCH_SIZE,
+      maxAttempts: env.JOB_MAX_ATTEMPTS,
+      retryBaseMs: env.JOB_RETRY_BASE_MS,
+      retryMaxMs: env.JOB_RETRY_MAX_MS,
+      staleAfterMs: env.JOB_STALE_AFTER_MS,
+    },
   };
 }

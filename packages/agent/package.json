@@ -1,0 +1,25 @@
+{
+  "name": "@mini-agent/agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mini-agent/config": "workspace:*",
+    "@mini-agent/core": "workspace:*",
+    "@mini-agent/db": "workspace:*",
+    "@mini-agent/memory": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.7.2"
+  }
+}

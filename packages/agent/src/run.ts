@@ -11,7 +11,7 @@ import {
 } from "@mini-agent/core";
 import { query } from "@mini-agent/db";
 import { loadProcedural, recall, saveMessage, searchFacts } from "@mini-agent/memory";
-import { toolsFor } from "./tools.service.js";
+import { toolsFor } from "./tools.js";
 
 export interface RunRequest {
   userId: string;

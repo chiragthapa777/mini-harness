@@ -4,8 +4,8 @@
 This is the other half: what actually exists in the repo today, file by file, so anyone
 picking up the project can tell shipped from planned without reading every source file.
 
-For the punch list of what's *not* built yet, see [`TODO.md`](../TODO.md) — items 4–13
-there are gaps found by comparing this doc against `docs/architecture.md`. For how one
+For the punch list of what's *not* built yet, see [`TODO.md`](../TODO.md) — the open
+items there are gaps found by comparing this doc against `docs/architecture.md`. For how one
 run actually works step by step (the loop, tool calls, working memory), see
 [`docs/agent-run.md`](agent-run.md).
 
@@ -16,15 +16,16 @@ run actually works step by step (the loop, tool calls, working memory), see
 | Layer (from architecture.md) | State |
 |---|---|
 | Gateway — web app | Built (`apps/web`) |
-| Gateway — TUI, WhatsApp/Telegram bot | Not built (TODO 5, 13) |
+| Gateway — TUI, WhatsApp/Telegram bot | Not built (TODO 13, 18) |
 | Agentic loop, tool protocol, guardrails | Built (`packages/core`) |
 | Procedural / semantic / episodic memory | Built (`packages/memory`) |
-| Memory consolidation (episodic → semantic) | Code exists, **not wired to anything** — no caller, no `Summarizer` (TODO 7) |
+| Memory consolidation (episodic → semantic) | Code exists, **not wired to anything** — no caller, no `Summarizer` (TODO 10) |
 | LLM Ops — trace | Built (per-run trace, admin Traces tab) |
-| LLM Ops — eval / observe / diagnose / gate / release | Not built (TODO 8) |
-| Cron / scheduled jobs / background job runner | Not built (TODO 9, 10) |
-| Named agent personas (per-persona system prompt/config) | Not built — one global `SYSTEM_PROMPT` today (TODO 11) |
-| MCP support | Not built (TODO 6) |
+| LLM Ops — eval / observe / diagnose / gate / release | Not built (TODO 15) |
+| Background job runner (queue + worker) | Built (`packages/jobs`, `apps/worker`) |
+| Cron / scheduled jobs | Not built (TODO 6) |
+| Named agent personas (per-persona system prompt/config) | Not built — one global `SYSTEM_PROMPT` today (TODO 16) |
+| MCP support | Not built (TODO 14) |
 
 ---
 
@@ -69,7 +70,7 @@ index.ts                      entrypoint — bootstrap admin, listen
 logger.ts                     timestamped console wrapper
 middleware/auth.middleware.ts requireAuth, requireAdmin, AuthedRequest
 routes/                       health, auth, admin, conversations, chat — one file each
-services/                     auth, users, conversations, traces, tools, run, bootstrap
+services/                     auth, users, traces, jobs, bootstrap
 utils/                        http.ts (message/clampInt/parseDate), sse.ts (SSE writer)
 ```
 
@@ -93,9 +94,20 @@ utils/                        http.ts (message/clampInt/parseDate), sse.ts (SSE 
 | POST | `/chat` | user | one run, full reply |
 | POST | `/chat/stream` | user | one run, SSE |
 
-`toolsFor(userId)` (`services/tools.service.ts`) builds the per-run tool list: the
-stateless defaults from `packages/core` plus two memory tools bound to the caller
-(`remember`, `search_memory`).
+Running an agent turn is no longer an API concern: `run`/`runStream`/`toolsFor` live in
+`packages/agent`, because the worker runs the same loop for scheduled work. Conversation
+CRUD moved to `packages/memory` for the same reason.
+
+### 2.3 `apps/worker` — the job runner
+
+A second entrypoint onto the same harness, not a second harness. `src/index.ts` starts
+the poll loop from `packages/jobs` and drains the current batch on SIGINT/SIGTERM;
+`src/handlers.ts` is the dispatch table mapping a job type to the package function that
+does the work. Today it registers `agent_run` — a full agent turn with nobody watching,
+persisted exactly like a chat turn (same episodic write, same trace).
+
+Deploy it alongside the API (`docker-compose.yml`, service `worker`) or not at all: with
+`JOBS_ENABLED=false` every producer does its work inline instead of enqueueing it.
 
 ---
 
@@ -117,7 +129,7 @@ stateless defaults from `packages/core` plus two memory tools bound to the calle
 - **`tools.ts`** — the stateless default tools: `current_time`, `calculator` (shunting-
   yard, no `eval`), `web_search`, `scrape_url`, `fetch_url` (the latter three delegate to
   `packages/search`).
-- **`config.ts`** — `SYSTEM_PROMPT` (one global constant today — see TODO 11),
+- **`config.ts`** — `SYSTEM_PROMPT` (one global constant today — see TODO 16),
   `PROMPT_VERSION`, `runConfig()` reading provider/model/guardrails from
   `@mini-agent/config`.
 - **`provider.ts`** — thin wrapper choosing a `ChatClient` from `packages/llm` by
@@ -137,6 +149,9 @@ SDK imported lazily. Also owns embeddings (`embed`, `embedQuery`) for the vector
 - **Semantic** (`semantic.ts`) — `facts` table. `searchFacts` (RAG top-k, falls back to
   most-recent when no embedding), `writeFact`, `listFacts` (admin listing, offset-paged,
   no ranking).
+- **Conversations** (`conversations.ts`) — the container the episodic log hangs off:
+  list/create/delete, messages for one thread, title-from-first-message. Lives here, not
+  in an app, because both the API and the worker need it.
 - **Episodic** (`episodic.ts`) — `messages` table. `recall` unions a recency query and a
   relevance query (RAG); `saveMessage` embeds and stores every turn.
 - **Consolidation** (`consolidate.ts`) — gate (only run past N unconsolidated messages),
@@ -144,7 +159,36 @@ SDK imported lazily. Also owns embeddings (`embed`, `embedQuery`) for the vector
   calls `consolidate()` and no `Summarizer` is implemented** — episodic memory grows
   forever today; semantic memory only grows from the agent's own `remember` tool.
 
-### 3.4 `packages/db`
+### 3.4 `packages/jobs` — the queue
+
+Postgres is the queue; there is no broker. `enqueue` inserts, `claim` takes a batch with
+`UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED)` so N workers take disjoint
+batches, and the same rows stay put as the audit log the admin panel reads — a finished
+job is a row with a terminal status, not a deleted one.
+
+- **`types.ts`** — `JobPayloads`, one map of job type → payload shape. Producers (api,
+  memory) and the consumer (worker) never import each other, so this type is the only
+  thing keeping them honest. This package owns the *shape* of the work; handlers own the
+  behaviour.
+- **`queue.ts`** — `enqueue` (with `dedupeKey`: only one live job may hold a key, so a
+  sweep can re-enqueue every tick without piling up), `claim`, `succeed`, `fail`
+  (exponential backoff to `max_attempts`, then dead-letter), `reapStale` (a job still
+  `running` past the stale window went down with its worker), plus the admin reads
+  `listJobs` / `getJob` / `jobStats` / `retryJob`.
+- **`worker.ts`** — `startWorker` (claim → run → mark, sleeping only when the queue is
+  empty) and `runJob` for executing one job inline. A handler that throws is recorded on
+  the job, never fatal to the worker.
+- **`test/queue.test.ts`** — runs against real Postgres, skipped when `DATABASE_URL` is
+  unset. Covers dedupe, exclusive claim, result capture, backoff → dead-letter → manual
+  retry, unregistered types, and the stale reaper.
+
+### 3.5 `packages/agent` — one run, assembled and persisted
+
+`run` / `runStream` (working memory → loop → episodic write + trace) and `toolsFor`
+(default tools plus the per-user `remember` / `search_memory`). Lifted out of
+`apps/api/src/services` when the worker needed the same run path for scheduled work.
+
+### 3.6 `packages/db`
 
 Lazy singleton `pg.Pool`, a `query()` helper, and `toVector()` for pgvector literals.
 Schema (`schema.sql`, applied on first boot of an empty Postgres volume):
@@ -157,8 +201,9 @@ Schema (`schema.sql`, applied on first boot of an empty Postgres volume):
 | `events` | dated events, separate from chat turns (defined, not yet written to by any code path) |
 | `facts` | semantic memory — kind, content, embedding, source |
 | `traces` | one row per agent run — tokens, latency, stop reason, steps (jsonb), system prompt |
+| `jobs` | background work — type, payload, status, attempts, backoff schedule, dedupe key, result |
 
-### 3.5 `packages/search`
+### 3.7 `packages/search`
 
 Backend for the three web tools. `SearchProvider` interface, `DuckDuckGoProvider` the
 only implementation today (keyless). `guardedFetch`/`assertPublicUrl`
@@ -166,7 +211,7 @@ only implementation today (keyless). `guardedFetch`/`assertPublicUrl`
 model-chosen URLs and the network the harness runs in. `scrape.ts` strips boilerplate to
 markdown for `scrape_url`.
 
-### 3.6 `packages/config`
+### 3.8 `packages/config`
 
 The only file allowed to touch `process.env` (`src/index.ts`). Zod-validated,
 re-parsed on every `getConfig()` call (not cached at import time) so tests can stub

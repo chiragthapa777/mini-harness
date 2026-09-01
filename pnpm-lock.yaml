@@ -14,6 +14,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@mini-agent/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
       '@mini-agent/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -23,6 +26,9 @@ importers:
       '@mini-agent/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@mini-agent/jobs':
+        specifier: workspace:*
+        version: link:../../packages/jobs
       '@mini-agent/memory':
         specifier: workspace:*
         version: link:../../packages/memory
@@ -95,6 +101,59 @@ importers:
         specifier: ^6.0.5
         version: 6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13)
 
+  apps/worker:
+    dependencies:
+      '@mini-agent/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
+      '@mini-agent/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@mini-agent/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@mini-agent/jobs':
+        specifier: workspace:*
+        version: link:../../packages/jobs
+      '@mini-agent/memory':
+        specifier: workspace:*
+        version: link:../../packages/memory
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.13
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/agent:
+    dependencies:
+      '@mini-agent/config':
+        specifier: workspace:*
+        version: link:../config
+      '@mini-agent/core':
+        specifier: workspace:*
+        version: link:../core
+      '@mini-agent/db':
+        specifier: workspace:*
+        version: link:../db
+      '@mini-agent/memory':
+        specifier: workspace:*
+        version: link:../memory
+      zod:
+        specifier: ^4.0.0
+        version: 4.5.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/config:
     dependencies:
       zod:
@@ -154,6 +213,25 @@ importers:
       '@types/pg':
         specifier: ^8.11.10
         version: 8.23.1
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/jobs:
+    dependencies:
+      '@mini-agent/config':
+        specifier: workspace:*
+        version: link:../config
+      '@mini-agent/db':
+        specifier: workspace:*
+        version: link:../db
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

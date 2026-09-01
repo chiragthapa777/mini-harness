@@ -1,5 +1,12 @@
 import { query } from "@mini-agent/db";
 
+/**
+ * Conversations are the container the episodic log hangs off, so they live in
+ * the memory package rather than in one app's services: the API serves them to
+ * the browser, and the worker needs the same helpers to run scheduled work
+ * against a conversation.
+ */
+
 export interface ConversationRow {
   id: string;
   title: string | null;
