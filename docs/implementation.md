@@ -111,6 +111,11 @@ utils/                        http.ts (message/clampInt/parseDate), sse.ts (SSE 
 | POST | `/chat` | user | one run, full reply |
 | POST | `/chat/stream` | user | one run, SSE |
 
+Working memory is assembled per store: procedural loads direct, semantic is RAG top-k,
+episodic is RAG over conversation summaries *plus* SQL recency over messages.
+`PROMPT_VERSION` is 2 — the prompt changed shape when episodic memory moved from raw
+turns to summaries, so traces from before and after are not comparable.
+
 Running an agent turn is no longer an API concern: `run`/`runStream`/`toolsFor` live in
 `packages/agent`, because the worker runs the same loop for scheduled work. Conversation
 CRUD moved to `packages/memory` for the same reason.
@@ -134,7 +139,11 @@ Deploy it alongside the API (`docker-compose.yml`, service `worker`) or not at a
 
 - **`loop.ts` / `stream.ts`** — the agentic loop, non-streaming and streaming twins.
   Each iteration: call the model, parse `tool_call` fences out of the reply, run the
-  matching tool handlers, feed results back as the next user turn. Guardrails:
+  matching tool handlers, feed results back as the next user turn. `buildSystem` renders
+  retrieved memory under four headings — *How to act*, *What is known*, *Earlier
+  conversations* (dated recaps), *Recent messages* (verbatim window). The last two are
+  separate because a recap of an episode and the last few turns are not the same kind of
+  thing, and one heading would tell the model they were. Guardrails:
   `maxIterations`, `maxTokensPerRun`. Every run returns a `Trace` — provider, model, the
   **fully assembled system prompt actually sent**, iterations, token counts, latency,
   stop reason, and one `TraceStep` per iteration (tool calls, tokens, latency).

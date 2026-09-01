@@ -61,7 +61,7 @@ const schema = z.object({
   AGENT_MAX_TOKENS: numeric(16000),
   AGENT_MAX_ITERATIONS: numeric(8),
   AGENT_MAX_TOKENS_PER_RUN: numeric(100_000),
-  PROMPT_VERSION: str("1"),
+  PROMPT_VERSION: str("2"),
 
   RAG_TOP_K: numeric(5),
   EPISODIC_RECENT_LIMIT: numeric(10),

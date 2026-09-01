@@ -65,7 +65,7 @@ consolidation) onto it, then wire what that produces back into the run loop.
   - idempotent and re-entrant — a job that dies mid-run leaves the watermark unmoved and is picked up next tick
   - the summarizer is a cheap-model call over `ChatClient` (packages/llm); same implementation serves #10
 
-- [ ] 9. integrate summarized episodic memory into the run loop and system prompt
+- [x] 9. integrate summarized episodic memory into the run loop and system prompt
   - depends on #8
   - `recall()` switches to two sources: relevance over `events` summaries (RAG top-k) + SQL recency over raw `messages` for the current/recent window only — long-tail retrieval stops being per-turn
   - `workingMemory()` (apps/api/src/services/run.service.ts:59) currently flattens episodes to `"<iso> <role>: <content>"`; dated event summaries need their own rendering (`<date> — <summary>`), so `WorkingMemory` (packages/core/src/types.ts) likely grows a field rather than overloading `episodic`

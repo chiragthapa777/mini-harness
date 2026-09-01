@@ -9,6 +9,7 @@ const wm: WorkingMemory = {
   systemPrompt: "You are a test agent.",
   procedural: ["always answer"],
   semantic: ["the user likes tests"],
+  events: ["2026-01-01 — the user asked about testing"],
   episodic: ["2026-01-01 user: hi"],
   history: [],
   userPrompt: "what time is it?",
@@ -82,7 +83,10 @@ test("system prompt carries the catalog and retrieved memory", async () => {
   assert.match(system, /### echo/);
   assert.match(system, /## How to act\n- always answer/);
   assert.match(system, /## What is known\n- the user likes tests/);
-  assert.match(system, /## What happened before/);
+  // The two episodic shapes are rendered apart: a recap of an earlier
+  // conversation is not the same kind of thing as the last few turns.
+  assert.match(system, /## Earlier conversations\n- 2026-01-01 — the user asked about testing/);
+  assert.match(system, /## Recent messages\n- 2026-01-01 user: hi/);
 });
 
 test("runs a tool, feeds the result back, then answers", async () => {

@@ -17,11 +17,21 @@ export interface AgentTool<S extends z.ZodObject<z.ZodRawShape> = z.ZodObject<z.
   run(input: z.infer<S>): Promise<string>;
 }
 
-/** Everything assembled into working memory for one run. */
+/**
+ * Everything assembled into working memory for one run.
+ *
+ * The episodic store contributes two different shapes, so it gets two fields
+ * rather than one flattened list: `events` are dated recaps of past
+ * conversations (what RAG ranked), `episodic` is the verbatim recent window.
+ * Rendering them under one heading would tell the model that a three-line turn
+ * and a whole episode are the same kind of thing.
+ */
 export interface WorkingMemory {
   systemPrompt: string;
   procedural: string[];
   semantic: string[];
+  /** Dated summaries of earlier conversations, most relevant first. */
+  events: string[];
   episodic: string[];
   history: Msg[];
   userPrompt: string;

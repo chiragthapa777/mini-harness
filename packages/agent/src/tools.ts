@@ -1,5 +1,5 @@
 import { defaultTools, type AgentTool } from "@mini-agent/core";
-import { recall, searchFacts, writeFact } from "@mini-agent/memory";
+import { recallEvents, searchFacts, searchMessages, writeFact } from "@mini-agent/memory";
 import { z } from "zod";
 
 /**
@@ -29,18 +29,26 @@ export function toolsFor(userId: string): AgentTool[] {
   const searchMemory: AgentTool = {
     name: "search_memory",
     description:
-      "Search long-term memory for facts and past conversation turns. Use when " +
-      "the user refers to something from an earlier conversation.",
+      "Search long-term memory: durable facts, recaps of past conversations, " +
+      "and the exact wording of individual past messages. Use when the user " +
+      "refers to something from an earlier conversation.",
     schema: z.object({
       query: z.string().describe("What to look for"),
     }),
     async run({ query }) {
       const q = String(query);
-      const [facts, episodes] = await Promise.all([searchFacts(userId, q), recall(userId, q, 5)]);
+      // Recaps answer "what happened"; the verbatim turns are there for when
+      // the exact wording matters and a summary has flattened it.
+      const [facts, events, messages] = await Promise.all([
+        searchFacts(userId, q),
+        recallEvents(userId, q, 5),
+        searchMessages(userId, q, 5),
+      ]);
 
       const lines = [
         ...facts.map((f) => `fact: ${f.content}`),
-        ...episodes.map((e) => `${e.created_at.toISOString()} ${e.role}: ${e.content}`),
+        ...events.map((e) => `${e.occurred_at.toISOString().slice(0, 10)} recap: ${e.summary}`),
+        ...messages.map((m) => `${m.created_at.toISOString()} ${m.role}: ${m.content}`),
       ];
       return lines.length ? lines.join("\n") : "nothing found in memory";
     },

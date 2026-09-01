@@ -117,7 +117,10 @@ export function buildSystem(wm: WorkingMemory, tools: AgentTool[]): string {
   const sections: [string, string[]][] = [
     ["How to act", wm.procedural],
     ["What is known", wm.semantic],
-    ["What happened before", wm.episodic],
+    // Two episodic sections, because they are not the same kind of thing: one
+    // is a recap of a past conversation, the other is what was just said.
+    ["Earlier conversations", wm.events],
+    ["Recent messages", wm.episodic],
   ];
 
   const retrieved = sections

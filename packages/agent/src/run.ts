@@ -10,7 +10,13 @@ import {
   type WorkingMemory,
 } from "@mini-agent/core";
 import { query } from "@mini-agent/db";
-import { loadProcedural, recall, saveMessage, searchFacts } from "@mini-agent/memory";
+import {
+  loadProcedural,
+  recall,
+  recallEvents,
+  saveMessage,
+  searchFacts,
+} from "@mini-agent/memory";
 import { toolsFor } from "./tools.js";
 
 export interface RunRequest {
@@ -74,18 +80,26 @@ export async function* runStream({
   if (trace) await persist({ userId, conversationId, prompt, reply, trace });
 }
 
-/** Inputs plus the three memory stores, assembled into the prompt. */
+/**
+ * Inputs plus the three memory stores, assembled into the prompt. Retrieval is
+ * per store, as it should be: procedural loads direct, semantic is RAG top-k,
+ * and episodic is both — RAG over conversation summaries for relevance, SQL
+ * over messages for the recent window.
+ */
 async function workingMemory(userId: string, prompt: string): Promise<WorkingMemory> {
-  const [procedural, facts, episodes] = await Promise.all([
+  const [procedural, facts, events, episodes] = await Promise.all([
     loadProcedural(),
     searchFacts(userId, prompt),
-    recall(userId, prompt),
+    recallEvents(userId, prompt),
+    recall(userId),
   ]);
 
   return {
     systemPrompt: SYSTEM_PROMPT,
     procedural,
     semantic: facts.map((f) => f.content),
+    // A recap is dated, not timestamped: the day is what makes it findable.
+    events: events.map((e) => `${e.occurred_at.toISOString().slice(0, 10)} — ${e.summary}`),
     episodic: episodes.map((e) => `${e.created_at.toISOString()} ${e.role}: ${e.content}`),
     history: episodes.map((m) => ({
       role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),

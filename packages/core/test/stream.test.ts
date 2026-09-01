@@ -10,6 +10,7 @@ const wm: WorkingMemory = {
   systemPrompt: "You are a test agent.",
   procedural: [],
   semantic: [],
+  events: [],
   episodic: [],
   history: [],
   userPrompt: "hello",

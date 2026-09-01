@@ -2,9 +2,12 @@ export { loadProcedural } from "./procedural.js";
 export { searchFacts, writeFact, listFacts, type Fact, type AdminFact } from "./semantic.js";
 export {
   recall,
+  recallEvents,
   saveMessage,
+  searchMessages,
   unconsolidated,
   markConsolidated,
+  type StoredEvent,
   type StoredMessage,
 } from "./episodic.js";
 export {
