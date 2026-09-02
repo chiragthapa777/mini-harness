@@ -1,0 +1,102 @@
+# mini-agent — deployment compose.
+#
+# Runs the published images from GHCR; nothing is built here, so this file plus
+# a `.env` beside it is the whole deployment. The repo is not needed on the host.
+#
+#   docker compose pull
+#   docker compose up -d
+#
+# The root `docker-compose.yml` is the development one — it builds from source
+# and exposes Postgres to the host. This is the one to copy onto a server.
+#
+# Only `web` publishes a port. Postgres, the API and the worker talk over the
+# compose network and are not reachable from outside the host, which is what
+# you want inside a VPC: put a TLS terminator (Caddy, nginx, an ALB) in front
+# of `web` and let it be the only thing listening publicly.
+
+name: mini-agent
+
+services:
+  postgres:
+    # pgvector, because the SQL store and the vector store are one database.
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-mini_agent}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-mini_agent}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: applies packages/db/schema.sql (baked into the API image) and
+  # exits. The schema is idempotent, so this runs on every deploy — a fresh
+  # database and one several versions old both end up in the same place, and
+  # nothing else starts until it has succeeded.
+  db-init:
+    image: ${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/api:${VERSION:-latest}
+    restart: "no"
+    command: ["pnpm", "migrate"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mini_agent}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: ${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/api:${VERSION:-latest}
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mini_agent}
+      PORT: 3001
+    # No `ports:` — `web` proxies /api to this service over the compose network.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Everything that happens outside a request: embeddings, conversation
+  # summaries, consolidation, fact merging, and scheduled runs. Drop this
+  # service and set JOBS_ENABLED=false to run everything inline instead.
+  worker:
+    image: ${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/worker:${VERSION:-latest}
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mini_agent}
+      # Exactly one worker may run the scheduler. Scaling the worker means
+      # setting SCHEDULER_ENABLED=false on every replica but one — the overlap
+      # guard and the dedupe key make a double-fire harmless, but there is no
+      # reason to pay for it.
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+
+  # nginx serving the built SPA, proxying /api/ to the api service. This is the
+  # only service that listens on the host.
+  web:
+    image: ${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/web:${VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+
+volumes:
+  postgres-data:

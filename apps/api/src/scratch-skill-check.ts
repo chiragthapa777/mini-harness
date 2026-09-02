@@ -9,6 +9,7 @@ const result = await runAgent(
     systemPrompt: SYSTEM_PROMPT,
     procedural,
     semantic: [],
+    events: [],
     episodic: [],
     history: [],
     userPrompt: prompt,

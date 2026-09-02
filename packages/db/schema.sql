@@ -28,8 +28,20 @@ CREATE TABLE IF NOT EXISTS conversations (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id     text NOT NULL,
   title       text,
+  -- Rolling recap of the whole thread, under 200 words. This — not the raw
+  -- turns — is what episodic retrieval ranks, so it is a retrieval unit, not
+  -- an archive: regenerating rewrites it in place.
+  summary            text,
+  summary_updated_at timestamptz,
+  -- Watermark: the last message folded into `summary`. Anything newer is what
+  -- the next summarize job has to read.
+  summary_message_id bigint,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS summary text;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS summary_updated_at timestamptz;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS summary_message_id bigint;
 
 CREATE TABLE IF NOT EXISTS messages (
   id               bigserial PRIMARY KEY,
@@ -52,15 +64,28 @@ CREATE INDEX IF NOT EXISTS messages_unconsolidated_idx
 CREATE INDEX IF NOT EXISTS messages_embedding_idx
   ON messages USING hnsw (embedding vector_cosine_ops);
 
--- dated events, separate from chat turns
+-- Dated events — what episodic retrieval actually ranks. One row per
+-- conversation, holding that conversation's summary, upserted whenever the
+-- summary is regenerated. Ranking summaries instead of individual turns is
+-- what keeps one chatty thread from crowding out everything else.
 CREATE TABLE IF NOT EXISTS events (
-  id          bigserial PRIMARY KEY,
-  user_id     text NOT NULL,
-  summary     text NOT NULL,
-  occurred_at timestamptz NOT NULL,
-  embedding   vector(1536),
-  created_at  timestamptz NOT NULL DEFAULT now()
+  id              bigserial PRIMARY KEY,
+  user_id         text NOT NULL,
+  -- null for an event that came from somewhere other than a conversation
+  conversation_id uuid REFERENCES conversations(id) ON DELETE CASCADE,
+  summary         text NOT NULL,
+  occurred_at     timestamptz NOT NULL,
+  embedding       vector(1536),
+  created_at      timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE events ADD COLUMN IF NOT EXISTS conversation_id uuid
+  REFERENCES conversations(id) ON DELETE CASCADE;
+
+-- The upsert target: one event per conversation, so regenerating a summary
+-- updates the row instead of appending a near-duplicate.
+CREATE UNIQUE INDEX IF NOT EXISTS events_conversation_idx
+  ON events (conversation_id) WHERE conversation_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS events_recency_idx ON events (user_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS events_embedding_idx
@@ -81,9 +106,19 @@ CREATE TABLE IF NOT EXISTS facts (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- Merging supersedes, it never deletes: the losing row stays, pointing at the
+-- fact that replaced it. That keeps an audit trail, makes a bad merge
+-- reversible, and means "where did that fact go" has an answer.
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS superseded_by bigint REFERENCES facts(id) ON DELETE SET NULL;
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+
 CREATE INDEX IF NOT EXISTS facts_user_idx ON facts (user_id, kind);
 CREATE INDEX IF NOT EXISTS facts_embedding_idx
   ON facts USING hnsw (embedding vector_cosine_ops);
+
+-- Every read path filters archived rows, so the index they use should too.
+CREATE INDEX IF NOT EXISTS facts_active_idx
+  ON facts (user_id, updated_at DESC) WHERE archived_at IS NULL;
 
 -- ------------------------------------------------------------------ traces
 -- One trace per run. Everything LLM Ops needs to answer "was it correct"
@@ -110,4 +145,79 @@ CREATE INDEX IF NOT EXISTS traces_recency_idx ON traces (created_at DESC);
 CREATE INDEX IF NOT EXISTS traces_errors_idx ON traces (created_at DESC) WHERE error IS NOT NULL;
 
 ALTER TABLE traces ADD COLUMN IF NOT EXISTS system_prompt text;
+
+-- -------------------------------------------------------------------- jobs
+-- Work that runs outside a request/response cycle. This one table is both the
+-- queue and the audit log: the status columns are the tracking, so a finished
+-- job is not deleted, it is a row with a terminal status the admin panel reads.
+--
+-- Claiming uses `FOR UPDATE SKIP LOCKED`, which is why no separate lock table
+-- or external broker is needed — Postgres is the queue.
+
+CREATE TABLE IF NOT EXISTS jobs (
+  id            bigserial PRIMARY KEY,
+  type          text NOT NULL,
+  -- null for maintenance work that belongs to no single user (sweeps)
+  user_id       text,
+  payload       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status        text NOT NULL DEFAULT 'queued'
+                CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
+  attempts      int NOT NULL DEFAULT 0,
+  max_attempts  int NOT NULL DEFAULT 3,
+  last_error    text,
+  -- collapses duplicate work: only one live job may hold a given key
+  dedupe_key    text,
+  result        jsonb,
+  scheduled_for timestamptz NOT NULL DEFAULT now(),
+  started_at    timestamptz,
+  finished_at   timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- The claim query's index: due, queued, oldest first.
+CREATE INDEX IF NOT EXISTS jobs_claim_idx
+  ON jobs (scheduled_for, id) WHERE status = 'queued';
+
+CREATE INDEX IF NOT EXISTS jobs_recency_idx ON jobs (created_at DESC);
+CREATE INDEX IF NOT EXISTS jobs_status_idx ON jobs (status, type);
+
+-- Enqueueing the same key twice while the first is still live is a no-op
+-- (`ON CONFLICT DO NOTHING`), so a sweep can run every tick without piling up.
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_dedupe_idx
+  ON jobs (dedupe_key) WHERE dedupe_key IS NOT NULL AND status IN ('queued', 'running');
+
+-- Recovering a stuck job needs the start time of everything still running.
+CREATE INDEX IF NOT EXISTS jobs_running_idx ON jobs (started_at) WHERE status = 'running';
+
+-- --------------------------------------------------------------- schedules
+-- Cron, in the app rather than in the database: one table for both the
+-- maintenance schedules defined in config (`kind = 'system'`, identified by a
+-- stable `key`) and the ones a user creates (`kind = 'user'`, a prompt plus a
+-- cadence). The scheduler tick turns a due row into a `jobs` row and nothing
+-- else — firing and running stay separate concerns.
+
+CREATE TABLE IF NOT EXISTS scheduled_jobs (
+  id           bigserial PRIMARY KEY,
+  kind         text NOT NULL DEFAULT 'user' CHECK (kind IN ('system', 'user')),
+  -- stable identity for a config-defined schedule; null for user schedules
+  key          text UNIQUE,
+  user_id      text,
+  name         text NOT NULL,
+  job_type     text NOT NULL,
+  payload      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- what a user schedule sends the agent; null for maintenance schedules
+  prompt       text,
+  cron         text NOT NULL,
+  enabled      boolean NOT NULL DEFAULT true,
+  last_run_at  timestamptz,
+  -- the job this schedule fired last, so a slow run is not fired again on top of itself
+  last_job_id  bigint REFERENCES jobs(id) ON DELETE SET NULL,
+  next_run_at  timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS scheduled_jobs_due_idx ON scheduled_jobs (next_run_at) WHERE enabled;
+CREATE INDEX IF NOT EXISTS scheduled_jobs_user_idx ON scheduled_jobs (user_id, created_at DESC);
 

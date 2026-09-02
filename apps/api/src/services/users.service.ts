@@ -28,12 +28,30 @@ export async function createUser(
   return row;
 }
 
-export async function listUsers(): Promise<Omit<UserRow, "password_hash">[]> {
-  return query<Omit<UserRow, "password_hash">>(
-    `SELECT id::text, email, role, failed_login_attempts, locked_until, created_at
-       FROM users
-      ORDER BY created_at ASC`,
-  );
+export type PublicUser = Omit<UserRow, "password_hash">;
+
+/**
+ * Paginated, and always with the total: the admin table needs to know how many
+ * pages there are, and the user pickers on the other admin pages need enough
+ * rows to fill a dropdown. Both read the same endpoint with different limits
+ * rather than there being two ways to list users.
+ */
+export async function listUsers({
+  limit = 50,
+  offset = 0,
+}: { limit?: number; offset?: number } = {}): Promise<{ users: PublicUser[]; total: number }> {
+  const [users, countRows] = await Promise.all([
+    query<PublicUser>(
+      `SELECT id::text, email, role, failed_login_attempts, locked_until, created_at
+         FROM users
+        ORDER BY created_at ASC
+        LIMIT $1 OFFSET $2`,
+      [limit, offset],
+    ),
+    query<{ count: string }>(`SELECT count(*)::text FROM users`),
+  ]);
+
+  return { users, total: Number(countRows[0]?.count ?? 0) };
 }
 
 export async function findUserByEmail(email: string): Promise<UserRow | undefined> {

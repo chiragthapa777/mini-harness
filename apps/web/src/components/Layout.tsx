@@ -71,6 +71,14 @@ export function Layout() {
             <PlusIcon />
             New chat
           </Link>
+          <Link
+            to="/schedules"
+            onClick={() => setSidebarOpen(false)}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-900"
+          >
+            <ClockIcon />
+            Schedules
+          </Link>
           {user?.role === "admin" && (
             <Link
               to="/admin"
@@ -157,6 +165,16 @@ export function MenuButton({ onClick }: { onClick(): void }) {
         <path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
       </svg>
     </button>
+  );
+}
+
+/** A schedule is a prompt on a clock, so: a clock. */
+function ClockIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <circle cx="8" cy="8" r="6.25" />
+      <path d="M8 4.5V8l2.5 1.5" strokeLinecap="round" />
+    </svg>
   );
 }
 

@@ -5,7 +5,7 @@ import {
   createConversation,
   deleteConversation,
   listConversations,
-} from "../services/conversations.service.js";
+} from "@mini-agent/memory";
 
 export const conversationsRoutes = Router();
 

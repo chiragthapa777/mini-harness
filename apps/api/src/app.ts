@@ -4,6 +4,7 @@ import { authRoutes } from "./routes/auth.routes.js";
 import { chatRoutes } from "./routes/chat.routes.js";
 import { conversationsRoutes } from "./routes/conversations.routes.js";
 import { healthRoutes } from "./routes/health.routes.js";
+import { schedulesRoutes } from "./routes/schedules.routes.js";
 
 export function createApp(): Express {
   const app = express();
@@ -13,6 +14,7 @@ export function createApp(): Express {
   app.use(authRoutes);
   app.use(adminRoutes);
   app.use(conversationsRoutes);
+  app.use(schedulesRoutes);
   app.use(chatRoutes);
 
   return app;

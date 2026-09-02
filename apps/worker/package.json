@@ -1,0 +1,23 @@
+{
+  "name": "@mini-agent/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file=../../.env src/index.ts",
+    "start": "tsx --env-file=../../.env src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mini-agent/agent": "workspace:*",
+    "@mini-agent/config": "workspace:*",
+    "@mini-agent/db": "workspace:*",
+    "@mini-agent/jobs": "workspace:*",
+    "@mini-agent/memory": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

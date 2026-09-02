@@ -17,13 +17,35 @@ export interface AgentTool<S extends z.ZodObject<z.ZodRawShape> = z.ZodObject<z.
   run(input: z.infer<S>): Promise<string>;
 }
 
-/** Everything assembled into working memory for one run. */
+/**
+ * Everything assembled into working memory for one run.
+ *
+ * The episodic store contributes two different shapes, so it gets two fields
+ * rather than one flattened list: `events` are dated recaps of past
+ * conversations (what RAG ranked), `episodic` is the verbatim recent window.
+ * Rendering them under one heading would tell the model that a three-line turn
+ * and a whole episode are the same kind of thing.
+ */
 export interface WorkingMemory {
   systemPrompt: string;
   procedural: string[];
   semantic: string[];
+  /** Dated summaries of earlier conversations, most relevant first. */
+  events: string[];
+  /** Recent turns from the user's *other* conversations. */
   episodic: string[];
+  /**
+   * The current conversation, replayed as real chat turns rather than prose in
+   * the system prompt — this is the one part of working memory the model
+   * should read as dialogue it took part in. Empty when there is no
+   * conversation to replay.
+   */
   history: Msg[];
+  /**
+   * Recap of the part of *this* conversation that fell out of `history`.
+   * Undefined when the whole thread still fits, which is the common case.
+   */
+  conversationSummary?: string;
   userPrompt: string;
 }
 

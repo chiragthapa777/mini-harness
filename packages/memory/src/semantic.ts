@@ -1,6 +1,6 @@
 import { getConfig } from "@mini-agent/config";
 import { query, toVector } from "@mini-agent/db";
-import { embed } from "./embeddings.js";
+import { embed, scheduleEmbedding } from "./embeddings.js";
 
 const TOP_K = getConfig().memory.ragTopK;
 
@@ -11,9 +11,17 @@ export interface Fact {
 }
 
 /**
+ * Every read path filters archived rows. A superseded fact is kept for the
+ * audit trail, not to be retrieved — retrieving it would put the stale half of
+ * a merge back in front of the model.
+ */
+const ACTIVE = "archived_at IS NULL";
+
+/**
  * Semantic memory — durable facts, user profile, domain rules. Retrieval is
- * pure relevance: RAG top-k. Recency does not matter here, so without
- * embeddings the best we can do is hand back the newest facts.
+ * relevance first: RAG top-k, plus the handful of facts whose embeddings have
+ * not landed yet (see below). With no embeddings configured at all, the best
+ * we can do is hand back the newest facts.
  */
 export async function searchFacts(
   userId: string,
@@ -26,21 +34,40 @@ export async function searchFacts(
     return query<Fact>(
       `SELECT id::text, content, kind
          FROM facts
-        WHERE user_id = $1
+        WHERE user_id = $1 AND ${ACTIVE}
         ORDER BY updated_at DESC
         LIMIT $2`,
       [userId, topK],
     );
   }
 
-  return query<Fact>(
-    `SELECT id::text, content, kind
-       FROM facts
-      WHERE user_id = $1 AND embedding IS NOT NULL
-      ORDER BY embedding <=> $2::vector
-      LIMIT $3`,
-    [userId, toVector(vector), topK],
-  );
+  // A fact written seconds ago has no vector yet — its embed job is still in
+  // the queue — and a pure similarity search cannot see it at all. "Remember I
+  // prefer Neovim" being invisible for the next few minutes is exactly the
+  // failure a user notices, so the newest un-embedded facts ride along until
+  // their vectors land.
+  const [relevant, pending] = await Promise.all([
+    query<Fact>(
+      `SELECT id::text, content, kind
+         FROM facts
+        WHERE user_id = $1 AND ${ACTIVE} AND embedding IS NOT NULL
+        ORDER BY embedding <=> $2::vector
+        LIMIT $3`,
+      [userId, toVector(vector), topK],
+    ),
+    query<Fact>(
+      `SELECT id::text, content, kind
+         FROM facts
+        WHERE user_id = $1 AND ${ACTIVE} AND embedding IS NULL
+        ORDER BY updated_at DESC
+        LIMIT $2`,
+      [userId, Math.max(1, Math.ceil(topK / 2))],
+    ),
+  ]);
+
+  const byId = new Map(relevant.map((fact) => [fact.id, fact]));
+  for (const fact of pending) byId.set(fact.id, fact);
+  return [...byId.values()];
 }
 
 export interface AdminFact extends Fact {
@@ -48,6 +75,8 @@ export interface AdminFact extends Fact {
   source: string | null;
   created_at: Date;
   updated_at: Date;
+  archived_at: Date | null;
+  superseded_by: string | null;
 }
 
 /**
@@ -57,42 +86,74 @@ export interface AdminFact extends Fact {
  */
 export async function listFacts(
   userId: string,
-  { kind, limit = 20, offset = 0 }: { kind?: string; limit?: number; offset?: number } = {},
+  {
+    kind,
+    includeArchived = false,
+    limit = 20,
+    offset = 0,
+  }: { kind?: string; includeArchived?: boolean; limit?: number; offset?: number } = {},
 ): Promise<{ facts: AdminFact[]; total: number }> {
-  const kindFilter = kind ? `AND kind = $2` : "";
-  const params = kind ? [userId, kind, limit, offset] : [userId, limit, offset];
-  const limitIdx = kind ? 3 : 2;
-  const offsetIdx = kind ? 4 : 3;
+  const filters: string[] = [];
+  const params: unknown[] = [userId];
+
+  if (kind) {
+    params.push(kind);
+    filters.push(`AND kind = $${params.length}`);
+  }
+  // Archived facts are hidden by default but reachable: without them a merge
+  // looks like data loss to whoever is reading the memory tab.
+  if (!includeArchived) filters.push(`AND ${ACTIVE}`);
+  const where = `WHERE user_id = $1 ${filters.join(" ")}`;
 
   const [facts, countRows] = await Promise.all([
     query<AdminFact>(
-      `SELECT id::text, user_id, kind, content, source, created_at, updated_at
+      `SELECT id::text, user_id, kind, content, source, created_at, updated_at,
+              archived_at, superseded_by::text
          FROM facts
-        WHERE user_id = $1 ${kindFilter}
+        ${where}
         ORDER BY updated_at DESC
-        LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
-      params,
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset],
     ),
-    query<{ count: string }>(
-      `SELECT count(*)::text FROM facts WHERE user_id = $1 ${kindFilter}`,
-      kind ? [userId, kind] : [userId],
-    ),
+    query<{ count: string }>(`SELECT count(*)::text FROM facts ${where}`, params),
   ]);
 
   return { facts, total: Number(countRows[0]?.count ?? 0) };
 }
 
-/** Written by the summarizer agent, never by the run loop. */
+/**
+ * Written by the summarizer agent and the agent's own `remember` tool, never by
+ * the run loop itself. Like `saveMessage`, the embedding is filled in by a job
+ * rather than on the caller's clock.
+ */
 export async function writeFact(
   userId: string,
   content: string,
   kind: Fact["kind"] = "fact",
   source?: string,
-): Promise<void> {
-  const vector = await embed(content);
-  await query(
-    `INSERT INTO facts (user_id, kind, content, source, embedding)
-     VALUES ($1, $2, $3, $4, $5::vector)`,
-    [userId, kind, content, source ?? null, vector ? toVector(vector) : null],
+): Promise<string> {
+  // Cheap exact-match dedup first: consolidation re-derives the same sentence
+  // from overlapping batches all the time, and touching `updated_at` says "seen
+  // again" without spending a row or an embedding call on it. Near-duplicates
+  // need the vector, so they are the dedupe job's problem (`dedupe.ts`).
+  const [existing] = await query<{ id: string }>(
+    `UPDATE facts
+        SET updated_at = now(), source = coalesce($4, source)
+      WHERE user_id = $1 AND kind = $2 AND ${ACTIVE}
+        AND lower(btrim(content)) = lower(btrim($3))
+      RETURNING id::text`,
+    [userId, kind, content, source ?? null],
   );
+  if (existing) return existing.id;
+
+  const [row] = await query<{ id: string }>(
+    `INSERT INTO facts (user_id, kind, content, source)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id::text`,
+    [userId, kind, content, source ?? null],
+  );
+  if (!row) throw new Error("failed to write fact");
+
+  await scheduleEmbedding("facts", row.id);
+  return row.id;
 }

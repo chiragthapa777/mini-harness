@@ -46,7 +46,13 @@ export interface AdminUser {
   created_at: string;
 }
 
-export const adminListUsers = () => json<AdminUser[]>("/admin/users");
+/**
+ * Paginated. The admin Users page pages through it; the pickers on the other
+ * admin pages ask for one large page, which is the same endpoint rather than a
+ * second way to list users.
+ */
+export const adminListUsers = (opts: { limit?: number; offset?: number } = {}) =>
+  json<{ users: AdminUser[]; total: number }>(`/admin/users?${qs(opts)}`);
 
 export const adminCreateUser = (email: string, password: string, role: "user" | "admin") =>
   json<{ id: string; email: string; role: "user" | "admin" }>("/admin/users", {
@@ -68,15 +74,32 @@ export interface AdminFact {
   source: string | null;
   created_at: string;
   updated_at: string;
+  archived_at: string | null;
+  superseded_by: string | null;
 }
 
 export const adminListFacts = (
   userId: string,
-  opts: { kind?: string; limit?: number; offset?: number } = {},
+  opts: { kind?: string; includeArchived?: boolean; limit?: number; offset?: number } = {},
 ) =>
   json<{ facts: AdminFact[]; total: number }>(
     `/admin/facts?${qs({ userId, ...opts })}`,
   );
+
+/**
+ * The file is read in the browser and posted as text: .txt/.md is a string,
+ * and that keeps multipart handling out of the server for no loss.
+ */
+export const adminUploadFacts = (
+  userId: string,
+  filename: string,
+  content: string,
+  kind = "data_dictionary",
+) =>
+  json<{ filename: string; chunks: number; factIds: string[] }>("/admin/facts/upload", {
+    method: "POST",
+    body: JSON.stringify({ userId, filename, content, kind }),
+  });
 
 export interface AdminTrace {
   id: string;
@@ -111,6 +134,85 @@ export const adminListTraces = (
 ) => json<{ traces: AdminTrace[]; total: number }>(`/admin/traces?${qs(filters)}`);
 
 export const adminGetTrace = (id: string) => json<AdminTraceDetail>(`/admin/traces/${id}`);
+
+export type JobStatus = "queued" | "running" | "succeeded" | "failed";
+
+export interface AdminJob {
+  id: string;
+  type: string;
+  user_id: string | null;
+  payload: unknown;
+  status: JobStatus;
+  attempts: number;
+  max_attempts: number;
+  last_error: string | null;
+  dedupe_key: string | null;
+  result: unknown;
+  scheduled_for: string;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const adminListJobs = (
+  filters: {
+    status?: JobStatus;
+    type?: string;
+    userId?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+) => json<{ jobs: AdminJob[]; total: number }>(`/admin/jobs?${qs(filters)}`);
+
+export const adminJobStats = () =>
+  json<{ status: JobStatus; type: string; count: number }[]>("/admin/jobs/stats");
+
+export const adminRetryJob = (id: string) =>
+  json<AdminJob>(`/admin/jobs/${id}/retry`, { method: "POST" });
+
+export interface Schedule {
+  id: string;
+  kind: "system" | "user";
+  key: string | null;
+  user_id: string | null;
+  name: string;
+  job_type: string;
+  prompt: string | null;
+  cron: string;
+  enabled: boolean;
+  last_run_at: string | null;
+  last_job_id: string | null;
+  next_run_at: string | null;
+  created_at: string;
+}
+
+export const listSchedules = () => json<Schedule[]>("/schedules");
+
+export const createSchedule = (input: { name: string; prompt: string; cron: string }) =>
+  json<Schedule>("/schedules", { method: "POST", body: JSON.stringify(input) });
+
+export const updateSchedule = (
+  id: string,
+  patch: { name?: string; prompt?: string; cron?: string; enabled?: boolean },
+) => json<Schedule>(`/schedules/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+
+export const removeSchedule = (id: string) =>
+  fetch(`/api/schedules/${id}`, { method: "DELETE", headers: authHeaders() });
+
+/** Next few firings for a cron expression — validation the user can actually read. */
+export const previewCron = (cron: string) =>
+  json<{ cron: string; runs: string[] }>(`/schedules/preview?${qs({ cron })}`);
+
+export const adminListSchedules = (
+  opts: { kind?: "system" | "user"; limit?: number; offset?: number } = {},
+) => json<{ schedules: Schedule[]; total: number }>(`/admin/schedules?${qs(opts)}`);
+
+export const adminSetScheduleEnabled = (id: string, enabled: boolean) =>
+  json<Schedule>(`/admin/schedules/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
 
 function qs(params: Record<string, string | number | boolean | undefined>): string {
   const search = new URLSearchParams();

@@ -9,6 +9,12 @@ those pieces live in.
 Implementation: [docs/implementation.md](docs/implementation.md) — what is actually built
 today (endpoints, schema, packages, gaps), as opposed to architecture.md's plan.
 
+Deployment: [docs/deploy.md](docs/deploy.md) — `deploy/docker-compose.yml` runs the
+published images; the tag is the release signal.
+
+TUI install: [docs/tui.md](docs/tui.md) — building `apps/tui` into an installable
+`mini-agent` command, and what it would take to ship a standalone binary.
+
 Agent run walk-through: [docs/agent-run.md](docs/agent-run.md) — how one run works end to
 end (working memory, the loop, tool calls, persistence), with file references.
 

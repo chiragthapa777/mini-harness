@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { logger } from "../logger.js";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.middleware.js";
-import { createConversation, titleFromFirstMessage } from "../services/conversations.service.js";
-import { run, runStream } from "../services/run.service.js";
+import { createConversation, titleFromFirstMessage } from "@mini-agent/memory";
+import { run, runStream } from "@mini-agent/agent";
 import { message } from "../utils/http.js";
 import { sendEvent } from "../utils/sse.js";
 

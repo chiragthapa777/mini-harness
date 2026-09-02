@@ -1,4 +1,14 @@
-import { listFacts } from "@mini-agent/memory";
+import { getConfig } from "@mini-agent/config";
+import {
+  getJob,
+  getSchedule,
+  jobStats,
+  listJobs,
+  listSchedules,
+  retryJob,
+  updateSchedule,
+} from "@mini-agent/jobs";
+import { ingestDocument, listFacts } from "@mini-agent/memory";
 import { Router } from "express";
 import { z } from "zod";
 import { logger } from "../logger.js";
@@ -29,8 +39,13 @@ const adminCreateUserSchema = z.object({
 });
 
 /** No self-registration: accounts are provisioned by an admin (or the startup bootstrap). */
-adminRoutes.get("/admin/users", async (_req, res) => {
-  res.json(await listUsers());
+adminRoutes.get("/admin/users", async (req, res) => {
+  res.json(
+    await listUsers({
+      limit: clampInt(req.query.limit, 50, 1, 500),
+      offset: clampInt(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+    }),
+  );
 });
 
 adminRoutes.post("/admin/users", async (req, res) => {
@@ -97,13 +112,58 @@ adminRoutes.get("/admin/facts", async (req, res) => {
     return;
   }
   const kind = typeof req.query.kind === "string" ? req.query.kind : undefined;
+  // Archived facts are the losing half of a merge — hidden by default, but a
+  // merge that cannot be inspected looks like data loss.
+  const includeArchived = req.query.includeArchived === "true";
   const limit = clampInt(req.query.limit, 20, 1, 100);
   const offset = clampInt(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
 
   try {
-    res.json(await listFacts(userId, { kind, limit, offset }));
+    res.json(await listFacts(userId, { kind, includeArchived, limit, offset }));
   } catch (err) {
     logger.error("admin list facts failed", err);
+    res.status(500).json({ error: message(err) });
+  }
+});
+
+/**
+ * Upload reference material into a user's semantic memory.
+ *
+ * The file arrives as text in JSON rather than multipart: the browser can read
+ * a .txt/.md file itself, and this keeps a file-upload dependency and a
+ * temp-file lifecycle out of the server for a feature whose payload is a
+ * string. Binary formats (PDF) would need a parser and can arrive with one.
+ */
+const uploadSchema = z.object({
+  userId: z.string().min(1),
+  filename: z.string().trim().min(1).max(200),
+  content: z.string().min(1),
+  kind: z.enum(["fact", "profile", "domain_rule", "data_dictionary"]).default("data_dictionary"),
+});
+
+adminRoutes.post("/admin/facts/upload", async (req, res) => {
+  const parsed = uploadSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "userId, filename and non-empty text content are required" });
+    return;
+  }
+
+  const { userId, filename, content, kind } = parsed.data;
+  const maxChars = getConfig().memory.uploadMaxChars;
+  if (content.length > maxChars) {
+    res.status(413).json({ error: `file is too large — the limit is ${maxChars} characters` });
+    return;
+  }
+  if (!(await findUserById(userId))) {
+    res.status(404).json({ error: "user not found" });
+    return;
+  }
+
+  try {
+    const result = await ingestDocument(userId, filename, content, { kind });
+    res.status(201).json(result);
+  } catch (err) {
+    logger.error("admin upload facts failed", err);
     res.status(500).json({ error: message(err) });
   }
 });
@@ -138,4 +198,112 @@ adminRoutes.get("/admin/traces/:id", async (req, res) => {
     return;
   }
   res.json(trace);
+});
+
+// -------------------------------------------------------------------- jobs
+
+const JOB_STATUSES = ["queued", "running", "succeeded", "failed"] as const;
+
+/** Queue depth by status and type — read before the listing, so it stays cheap. */
+adminRoutes.get("/admin/jobs/stats", async (_req, res) => {
+  try {
+    res.json(await jobStats());
+  } catch (err) {
+    logger.error("admin job stats failed", err);
+    res.status(500).json({ error: message(err) });
+  }
+});
+
+// Background work — the same rows the worker claims from, read-only here.
+adminRoutes.get("/admin/jobs", async (req, res) => {
+  const q = req.query;
+  const status = JOB_STATUSES.find((s) => s === q.status);
+
+  try {
+    res.json(
+      await listJobs({
+        status,
+        type: typeof q.type === "string" && q.type ? q.type : undefined,
+        userId: typeof q.userId === "string" && q.userId ? q.userId : undefined,
+        limit: clampInt(q.limit, 50, 1, 200),
+        offset: clampInt(q.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+      }),
+    );
+  } catch (err) {
+    logger.error("admin list jobs failed", err);
+    res.status(500).json({ error: message(err) });
+  }
+});
+
+adminRoutes.get("/admin/jobs/:id", async (req, res) => {
+  const job = await getJob(String(req.params.id));
+  if (!job) {
+    res.status(404).json({ error: "job not found" });
+    return;
+  }
+  res.json(job);
+});
+
+/**
+ * Requeue a finished job by hand — the fix for a dead-lettered job once
+ * whatever broke it (a missing key, a provider outage) has been sorted out.
+ * Attempts reset, so it gets the full retry budget again.
+ */
+adminRoutes.post("/admin/jobs/:id/retry", async (req, res) => {
+  try {
+    const job = await retryJob(String(req.params.id));
+    if (!job) {
+      res.status(409).json({ error: "only a finished job can be retried" });
+      return;
+    }
+    res.json(job);
+  } catch (err) {
+    logger.error("admin retry job failed", err);
+    res.status(500).json({ error: message(err) });
+  }
+});
+
+// --------------------------------------------------------------- schedules
+
+// Every schedule, system and user. The system ones are seeded from config by
+// the scheduler; the only thing an admin changes here is whether they run.
+adminRoutes.get("/admin/schedules", async (req, res) => {
+  const kind = req.query.kind === "system" || req.query.kind === "user" ? req.query.kind : undefined;
+  try {
+    res.json(
+      await listSchedules({
+        kind,
+        limit: clampInt(req.query.limit, 50, 1, 200),
+        offset: clampInt(req.query.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+      }),
+    );
+  } catch (err) {
+    logger.error("admin list schedules failed", err);
+    res.status(500).json({ error: message(err) });
+  }
+});
+
+const adminScheduleSchema = z.object({ enabled: z.boolean() });
+
+/** Pause or resume any schedule — including a noisy maintenance one, which is
+ *  why seeding deliberately never overwrites `enabled`. */
+adminRoutes.patch("/admin/schedules/:id", async (req, res) => {
+  const parsed = adminScheduleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "enabled must be a boolean" });
+    return;
+  }
+
+  const id = String(req.params.id);
+  if (!(await getSchedule(id))) {
+    res.status(404).json({ error: "schedule not found" });
+    return;
+  }
+
+  try {
+    res.json(await updateSchedule(id, parsed.data));
+  } catch (err) {
+    logger.error("admin update schedule failed", err);
+    res.status(500).json({ error: message(err) });
+  }
 });

@@ -8,12 +8,15 @@
     "start": "tsx --env-file=../../.env src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "hash-password": "tsx src/hash-password.ts"
+    "hash-password": "tsx src/hash-password.ts",
+    "migrate": "tsx --env-file=../../.env src/migrate.ts"
   },
   "dependencies": {
+    "@mini-agent/agent": "workspace:*",
     "@mini-agent/config": "workspace:*",
     "@mini-agent/core": "workspace:*",
     "@mini-agent/db": "workspace:*",
+    "@mini-agent/jobs": "workspace:*",
     "@mini-agent/memory": "workspace:*",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",

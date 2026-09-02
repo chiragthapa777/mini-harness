@@ -39,6 +39,23 @@ services:
       postgres:
         condition: service_healthy
 
+  # Background work: embeddings, summaries, consolidation, scheduled runs.
+  # Same packages as the API, different entrypoint — scale it separately, or
+  # drop it entirely and set JOBS_ENABLED=false to keep everything inline.
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    container_name: mini-agent-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-mini_agent}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   web:
     build:
       context: .

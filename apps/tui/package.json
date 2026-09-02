@@ -1,0 +1,31 @@
+{
+  "name": "@mini-agent/tui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "mini-agent": "dist/mini-agent.mjs"
+  },
+  "scripts": {
+    "dev": "tsx --env-file=../../.env src/index.tsx",
+    "start": "tsx --env-file=../../.env src/index.tsx",
+    "build": "tsx build.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@mini-agent/config": "workspace:*",
+    "ink": "^7.1.1",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "files": [
+    "dist"
+  ]
+}
