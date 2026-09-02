@@ -368,7 +368,14 @@ compare (`services/auth.service.ts`). JWT carries `sub`/`email`/`role`, verified
 `requireAuth` on every protected route. Repeated failed logins lock the account for a
 configurable window (`LOGIN_MAX_ATTEMPTS`/`LOGIN_LOCKOUT_MINUTES`).
 
-## 5. Local dev
+## 5. Deployment
+
+`deploy/docker-compose.yml` runs the published GHCR images — Postgres, API, worker, and
+nginx serving the web app — with only `web` publishing a port. A one-shot `db-init`
+service applies `packages/db/schema.sql` (baked into the API image, idempotent, re-run on
+every deploy) before anything else starts. See [`docs/deploy.md`](deploy.md).
+
+## 6. Local dev
 
 See [`README.md`](../README.md) for setup/run instructions — this doc is a reference for
 what exists, not a getting-started guide.

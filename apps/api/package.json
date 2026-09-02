@@ -8,7 +8,8 @@
     "start": "tsx --env-file=../../.env src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "hash-password": "tsx src/hash-password.ts"
+    "hash-password": "tsx src/hash-password.ts",
+    "migrate": "tsx --env-file=../../.env src/migrate.ts"
   },
   "dependencies": {
     "@mini-agent/agent": "workspace:*",
