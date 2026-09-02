@@ -3,8 +3,14 @@
 # Runs the published images from GHCR; nothing is built here, so this file plus
 # a `.env` beside it is the whole deployment. The repo is not needed on the host.
 #
-#   docker compose pull
 #   docker compose up -d
+#
+# That one command is also the upgrade. Every app service pulls on start
+# (`pull_policy: always`), and VERSION defaults to `latest`, which the release
+# workflow moves to each new non-prerelease tag — so a deploy never involves
+# editing this file or bumping a number by hand. Set VERSION to an exact
+# release (VERSION=0.1.0) when you want the opposite: deploys that only change
+# when you say so.
 #
 # The root `docker-compose.yml` is the development one — it builds from source
 # and exposes Postgres to the host. This is the one to copy onto a server.
@@ -39,6 +45,9 @@ services:
   # nothing else starts until it has succeeded.
   db-init:
     image: ${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/api:${VERSION:-latest}
+    # Without this, a floating tag like `latest` resolves to whatever was
+    # pulled the first time and `up -d` silently keeps running the old image.
+    pull_policy: always
     restart: "no"
     command: ["pnpm", "migrate"]
     env_file: [.env]
@@ -50,6 +59,7 @@ services:
 
   api:
     image: ${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/api:${VERSION:-latest}
+    pull_policy: always
     restart: unless-stopped
     env_file: [.env]
     environment:
@@ -73,6 +83,7 @@ services:
   # service and set JOBS_ENABLED=false to run everything inline instead.
   worker:
     image: ${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/worker:${VERSION:-latest}
+    pull_policy: always
     restart: unless-stopped
     env_file: [.env]
     environment:
@@ -92,6 +103,7 @@ services:
   # only service that listens on the host.
   web:
     image: ${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/web:${VERSION:-latest}
+    pull_policy: always
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-8080}:80"

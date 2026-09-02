@@ -68,11 +68,33 @@ cannot be re-run safely does not belong in something that runs on every boot.
 ## Upgrading
 
 ```sh
-docker compose pull && docker compose up -d
+docker compose up -d
 ```
 
-`db-init` re-applies the schema first. With `VERSION` pinned in `.env`, bump it and repeat
-— that is the deliberate version of the same two commands.
+That is the whole thing, and it does not involve editing anything. `VERSION` defaults to
+`latest`, which the release workflow moves to each new non-prerelease tag, and every app
+service carries `pull_policy: always` — without that, a floating tag resolves to whatever
+was pulled the first time and `up -d` would quietly keep running the old image. `db-init`
+re-applies the schema before the API and worker start.
+
+The trade is that a restart — including one Docker does by itself after a host reboot —
+picks up whatever `latest` points at. If you would rather deploys only happen when you
+say so, pin `VERSION=0.1.0` in `.env`; upgrading is then editing that line and running
+the same command.
+
+Either way, `latest` only moves when a version tag is pushed. If you want main to deploy
+without cutting a tag, add a branch trigger to `.github/workflows/release-images.yml`:
+
+```yaml
+on:
+  push:
+    tags: ["v*"]
+    branches: [main]        # add
+```
+
+with `type=raw,value=edge,enable={{is_default_branch}}` in the metadata tags, then set
+`VERSION=edge` on the server. That gives you a rolling channel from main and leaves
+`latest` meaning "newest release".
 
 ## Scaling and knobs
 
