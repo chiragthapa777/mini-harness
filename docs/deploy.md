@@ -18,8 +18,14 @@ git tag -a v0.1.0 -m "..." && git push origin v0.1.0
 
 That produces `ghcr.io/chiragthapa777/mini-harness/{api,worker,web}` tagged `0.1.0`,
 `0.1`, `0`, and `latest`. A pre-release tag (`v0.2.0-rc.1`) publishes only the full
-version and never moves `latest`. Images are `linux/amd64` only — on Graviton or Apple
-Silicon, add `linux/arm64` to the workflow's `platforms`.
+version and never moves `latest`.
+
+Images are multi-arch — `linux/amd64` and `linux/arm64` — so the same tag runs on a
+normal cloud host, on Graviton, and on an Apple Silicon laptop. Each architecture builds
+on its own native runner and the two are merged into one manifest afterwards; building
+arm64 under QEMU instead would roughly triple the wall clock, most of it emulated
+`pnpm install`. Releases before v0.1.1 are amd64 only and will fail to start on arm with
+`no matching manifest for linux/arm64/v8`.
 
 ## On the server
 

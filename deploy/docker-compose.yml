@@ -64,7 +64,7 @@ services:
     env_file: [.env]
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mini_agent}
-      PORT: 3001
+      PORT: 3002
     # No `ports:` — `web` proxies /api to this service over the compose network.
     depends_on:
       postgres:
