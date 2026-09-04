@@ -15,9 +15,18 @@ server {
     # The upstream is configuration rather than a baked-in constant: the API's
     # port is set by the deployment, and a frontend that could only ever talk
     # to `api:3001` would silently 502 the moment someone moved it.
+    # Re-resolved through Docker's DNS rather than pinned at startup. A static
+    # upstream is resolved once, so nginx both refuses to boot while the api is
+    # missing and keeps talking to a stale IP after the api is redeployed —
+    # neither is acceptable for a container that gets recreated routinely.
+    resolver ${API_RESOLVER} valid=10s ipv6=off;
+    set $api_upstream ${API_HOST}:${API_PORT};
+
     location /api/ {
         rewrite ^/api/(.*)$ /$1 break;
-        proxy_pass http://${API_HOST}:${API_PORT};
+        # The URI has to be spelled out: with a variable in proxy_pass nginx
+        # forwards the *original* request URI, which would put /api back on.
+        proxy_pass http://$api_upstream$uri$is_args$args;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_buffering off;

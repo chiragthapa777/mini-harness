@@ -38,6 +38,11 @@ ENV API_HOST=api
 ENV API_PORT=3001
 
 COPY apps/web/nginx.conf.template /etc/nginx/templates/default.conf.template
+
+# Sourced by the nginx entrypoint before the template is rendered; it has to be
+# executable or the entrypoint skips it.
+COPY apps/web/docker-entrypoint.d/19-normalize-api-host.envsh /docker-entrypoint.d/
+RUN chmod +x /docker-entrypoint.d/19-normalize-api-host.envsh
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 
 EXPOSE 80

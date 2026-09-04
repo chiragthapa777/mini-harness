@@ -59,6 +59,7 @@ no `VITE_API_URL` baked in at build time to get wrong.
 | `WEB_PORT` | 8080 | Host port for the UI |
 | `API_PORT` | 3001 | Port the API listens on, and the one nginx forwards to |
 | `API_HOST_PORT` | 3001 | Host port for the API |
+| `API_HOST` | api | Service name nginx proxies to — internal, not a public URL |
 
 `API_PORT` is read by both `api` (as `PORT`) and `web` (as nginx's upstream), so the two
 cannot drift. Moving the API is one variable:
@@ -73,6 +74,18 @@ which is the shape to prefer in a VPC. Put TLS in front of `web`; the API has no
 handling and expects to be reached through the proxy.
 
 Postgres is never published.
+
+### Running under Coolify (or anything that injects env vars)
+
+Coolify passes its environment variables to every service, so a value meant for one can
+land somewhere it means something else. `API_HOST` is the one that matters here: it is a
+container name on the internal network, not a public URL. Setting it to
+`http://1.2.3.4/` renders `proxy_pass http://http://1.2.3.4/:3001` and nginx exits with
+`invalid port in upstream`. The image now reduces a URL to its host and carries on, but
+the value to set is `api` — or nothing, since that is the default.
+
+Coolify also creates its own project network and container names (`api-<id>`), while
+still registering the compose service aliases, so `api` resolves normally from `web`.
 
 ## Schema
 
