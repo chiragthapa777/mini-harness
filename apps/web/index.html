@@ -2,7 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!--
+      viewport-fit=cover  draws under the notch/home indicator; the safe-area
+                          insets in the composer are what keep content clear of it
+      interactive-widget  resizes the layout viewport when the keyboard opens,
+                          instead of the keyboard sliding over the composer
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <title>mini-agent</title>
   </head>
   <body>

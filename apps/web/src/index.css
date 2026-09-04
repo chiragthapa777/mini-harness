@@ -1,6 +1,39 @@
 @import "tailwindcss";
 
+/*
+ * iOS Safari zooms the page whenever a focused field's text is under 16px, and
+ * it does not zoom back out afterwards — which is the "sometimes it gets weird
+ * and zoomed" everyone reports. Tailwind's `text-sm` is 14px, so every input in
+ * the app triggered it. Forcing 16px on small screens only is the fix; desktop
+ * keeps the smaller type it was designed with.
+ */
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+html {
+  /* Safari otherwise inflates text on rotation, which reflows the whole chat. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* Markdown inside assistant messages: readable defaults without a plugin. */
+
+/*
+ * A model reply can contain a URL or a hash longer than a phone is wide. Left
+ * alone that widens the whole column and the chat scrolls sideways, so break
+ * anywhere rather than overflow — except inside `pre`, which scrolls instead,
+ * because wrapping code changes what it says.
+ */
+.prose { overflow-wrap: anywhere; }
+.prose :where(pre) { overflow-wrap: normal; }
 .prose :where(p):not(:last-child) { margin-bottom: 0.75rem; }
 .prose :where(ul, ol) { margin: 0.5rem 0 0.75rem 1.25rem; }
 .prose :where(ul) { list-style: disc; }
@@ -23,7 +56,15 @@
   margin: 0.5rem 0 0.75rem;
 }
 .prose :where(pre code) { background: none; padding: 0; }
-.prose :where(table) { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
+/* Scrolls itself instead of stretching the message column. */
+.prose :where(table) {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+}
 .prose :where(th, td) {
   border: 1px solid color-mix(in oklab, currentColor 15%, transparent);
   padding: 0.35rem 0.6rem;

@@ -11,12 +11,15 @@ export function Composer({ busy, onSend, onStop, placeholder }: Props) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
-  // Grow with the content instead of scrolling a one-line box.
+  // Grow with the content instead of scrolling a one-line box, but never past
+  // a third of the viewport: 200px of composer on a phone with the keyboard up
+  // leaves nothing of the conversation visible.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    const cap = Math.max(96, Math.min(200, Math.round(window.innerHeight * 0.3)));
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, cap)}px`;
   }, [value]);
 
   function submit(event?: FormEvent) {
@@ -37,7 +40,9 @@ export function Composer({ busy, onSend, onStop, placeholder }: Props) {
   return (
     <form
       onSubmit={submit}
-      className="rounded-2xl border border-neutral-300 bg-white focus-within:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:focus-within:border-neutral-600"
+      // `min-w-0` matters inside the flex column above: without it a long
+      // unbroken line in the textarea can push the form wider than the screen.
+      className="min-w-0 rounded-2xl border border-neutral-300 bg-white focus-within:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:focus-within:border-neutral-600"
     >
       <textarea
         ref={ref}
@@ -47,7 +52,17 @@ export function Composer({ busy, onSend, onStop, placeholder }: Props) {
         onKeyDown={onKeyDown}
         placeholder={placeholder ?? "How can I help you today?"}
         title={placeholder ?? "Send a message… (Enter to send, Shift+Enter for a new line)"}
-        className="w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-sm outline-none placeholder:text-neutral-400"
+        // Prose, not a name or a URL: sentence case is right, autocorrect is
+        // welcome, and the keyboard's action key should say "return" rather
+        // than "go", since Enter sends but Shift+Enter is a newline.
+        autoCapitalize="sentences"
+        autoCorrect="on"
+        spellCheck
+        enterKeyHint="send"
+        // 16px on phones so iOS does not zoom the page on focus; the smaller
+        // desktop size returns at `sm`. The global rule in index.css covers
+        // this too — this keeps it visible at the call site.
+        className="w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-base outline-none placeholder:text-neutral-400 sm:text-sm"
       />
       <div className="flex items-center justify-end px-3 pb-2.5">
         {busy && onStop ? (

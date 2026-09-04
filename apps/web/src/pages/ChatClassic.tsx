@@ -91,7 +91,7 @@ export function ChatClassic() {
         </div>
       ) : (
         <>
-          <div className="flex-1 space-y-5 overflow-y-auto px-3 py-6 sm:px-6">
+          <div className="flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-6 sm:px-6">
             {turns.map((turn, i) => (
               <Message key={i} turn={turn} />
             ))}
