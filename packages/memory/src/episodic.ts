@@ -1,6 +1,6 @@
 import { getConfig } from "@mini-agent/config";
 import { query, toVector } from "@mini-agent/db";
-import { embed, scheduleEmbedding } from "./embeddings.js";
+import { embedForSearch, scheduleEmbedding } from "./embeddings.js";
 
 const TOP_K = getConfig().memory.ragTopK;
 const RECENT_LIMIT = getConfig().memory.episodicRecentLimit;
@@ -91,7 +91,7 @@ export async function recallEvents(
   prompt: string,
   topK = TOP_K,
 ): Promise<StoredEvent[]> {
-  const vector = await embed(prompt);
+  const vector = await embedForSearch(prompt);
 
   if (!vector) {
     return query<StoredEvent>(
@@ -122,7 +122,7 @@ export async function searchMessages(
   prompt: string,
   topK = TOP_K,
 ): Promise<StoredMessage[]> {
-  const vector = await embed(prompt);
+  const vector = await embedForSearch(prompt);
   if (!vector) return [];
 
   return query<StoredMessage>(

@@ -29,6 +29,40 @@ export async function embed(text: string): Promise<number[] | null> {
   return embedQuery(text);
 }
 
+let searchFailureWarnedAt = 0;
+
+/**
+ * `embed` for the read path, where a failure must not take the run with it.
+ *
+ * The unconfigured case was always handled — no key means no vector means
+ * recency-only recall. A *misconfigured* one was not: a wrong key or a
+ * provider outage threw out of `searchFacts`, through the `Promise.all` in
+ * working memory, and failed the whole chat turn. Retrieval quality degrading
+ * is the correct response to an embeddings problem; the agent refusing to
+ * answer is not.
+ *
+ * Jobs keep using `embed` directly, because there the throw is what makes the
+ * queue retry.
+ */
+export async function embedForSearch(text: string): Promise<number[] | null> {
+  try {
+    return await embed(text);
+  } catch (err) {
+    // Once a minute at most: a broken key fails on every single request, and
+    // the logs are more useful without thousands of copies of it.
+    const now = Date.now();
+    if (now - searchFailureWarnedAt > 60_000) {
+      searchFailureWarnedAt = now;
+      console.warn(
+        `[memory] embeddings unavailable, falling back to recency: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    return null;
+  }
+}
+
 /**
  * Where the text to embed lives, per table. One generic job covers all three
  * because the only thing that differs is this expression.

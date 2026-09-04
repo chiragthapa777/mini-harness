@@ -1,6 +1,6 @@
 import { getConfig } from "@mini-agent/config";
 import { query, toVector } from "@mini-agent/db";
-import { embed, scheduleEmbedding } from "./embeddings.js";
+import { embedForSearch, scheduleEmbedding } from "./embeddings.js";
 
 const TOP_K = getConfig().memory.ragTopK;
 
@@ -28,7 +28,7 @@ export async function searchFacts(
   prompt: string,
   topK = TOP_K,
 ): Promise<Fact[]> {
-  const vector = await embed(prompt);
+  const vector = await embedForSearch(prompt);
 
   if (!vector) {
     return query<Fact>(

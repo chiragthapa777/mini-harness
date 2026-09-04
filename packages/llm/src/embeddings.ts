@@ -7,10 +7,15 @@ export const EMBEDDING_DIMENSIONS = 1536;
 let cached: OpenAI | undefined;
 
 /**
- * Embeddings are configured separately from the chat provider, because
- * OpenRouter fronts chat models only — it has no embeddings endpoint. Point
- * EMBEDDINGS_API_KEY (plus EMBEDDINGS_BASE_URL for a non-OpenAI host) at
- * whatever serves them.
+ * Embeddings are configured separately from the chat provider: the key, the
+ * base URL and the model name are their own three settings, and all three have
+ * to point at the same place. An empty base URL means OpenAI, so an OpenRouter
+ * key with no base URL is sent to api.openai.com and comes back 401 — which
+ * reads like a bad key rather than a wrong endpoint.
+ *
+ * OpenRouter does serve embeddings, under namespaced model names
+ * (`openai/text-embedding-3-small`); an earlier version of this comment said
+ * otherwise and sent a deployment to the wrong host.
  */
 export function embeddingsConfigured(): boolean {
   return Boolean(getConfig().llm.embeddings.apiKey);

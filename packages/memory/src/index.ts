@@ -48,6 +48,7 @@ export {
 export {
   backfillEmbeddings,
   embed,
+  embedForSearch,
   embeddingsConfigured,
   embedRow,
   scheduleEmbedding,
