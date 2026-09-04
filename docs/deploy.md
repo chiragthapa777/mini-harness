@@ -84,6 +84,10 @@ container name on the internal network, not a public URL. Setting it to
 `invalid port in upstream`. The image now reduces a URL to its host and carries on, but
 the value to set is `api` — or nothing, since that is the default.
 
+`deploy/coolify-compose.yml` is the same stack with `API_HOST` hardcoded to `api`, since
+a service-level value wins over an injected one — paste that into Coolify's compose
+editor rather than the file next to it.
+
 Coolify also creates its own project network and container names (`api-<id>`), while
 still registering the compose service aliases, so `api` resolves normally from `web`.
 

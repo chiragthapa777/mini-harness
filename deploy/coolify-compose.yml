@@ -1,0 +1,119 @@
+# mini-agent — the compose file to paste into Coolify.
+#
+# Same stack as `docker-compose.yml` next to it, with one difference that
+# matters on a platform which injects its own environment variables:
+#
+#   web.environment.API_HOST is hardcoded to `api` rather than ${API_HOST:-api}.
+#
+# Coolify passes every variable defined for the app to every service. An
+# API_HOST meant as "the address of my API" — a public URL — then reaches
+# nginx, which renders `proxy_pass http://http://1.2.3.4/:3001` and exits with
+# "invalid port in upstream". A service-level value wins over an injected one,
+# so hardcoding it here closes that off. (The image also normalises a URL down
+# to its host since v0.2.1, but that would proxy to the host's public IP rather
+# than the container, so `api` is still the value you want.)
+#
+# `api` is a service name on the internal network, not something the browser
+# ever sees: the frontend calls relative /api paths and nginx forwards them.
+#
+# Coolify manages environment variables in its own UI rather than a `.env` file
+# on disk. The `env_file: [.env]` entries below are harmless when that file is
+# absent and useful when you run this outside Coolify.
+
+name: mini-agent
+services:
+  postgres:
+    image: 'pgvector/pgvector:pg17'
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: '${POSTGRES_USER:-postgres}'
+      POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}'
+      POSTGRES_DB: '${POSTGRES_DB:-mini_agent}'
+    volumes:
+      - 'postgres-data:/var/lib/postgresql/data'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-mini_agent}'
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: applies packages/db/schema.sql (baked into the API image) and
+  # exits. Idempotent, so it runs on every deploy and nothing else starts until
+  # it has succeeded.
+  db-init:
+    image: '${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/api:${VERSION:-latest}'
+    pull_policy: always
+    restart: 'no'
+    command:
+      - pnpm
+      - migrate
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: 'postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mini_agent}'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: '${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/api:${VERSION:-latest}'
+    pull_policy: always
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: 'postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mini_agent}'
+      PORT: '${API_PORT:-3001}'
+    # Published so the API can be reached directly. The UI does not use this —
+    # it goes through the web container's proxy — so these two lines can go.
+    ports:
+      - '${API_HOST_PORT:-3001}:${API_PORT:-3001}'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'wget -qO- http://localhost:${API_PORT:-3001}/health || exit 1'
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Embeddings, conversation summaries, consolidation, fact merging, scheduled
+  # runs. Remove it and set JOBS_ENABLED=false to run everything inline.
+  worker:
+    image: '${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/worker:${VERSION:-latest}'
+    pull_policy: always
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: 'postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mini_agent}'
+      # Exactly one worker may run the scheduler.
+      SCHEDULER_ENABLED: '${SCHEDULER_ENABLED:-true}'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+
+  web:
+    image: '${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/web:${VERSION:-latest}'
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      # Hardcoded on purpose — see the note at the top of this file.
+      API_HOST: api
+      API_PORT: '${API_PORT:-3001}'
+    ports:
+      - '${WEB_PORT:-3000}:80'
+    depends_on:
+      - api
+
+volumes:
+  postgres-data: null
