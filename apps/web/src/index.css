@@ -15,13 +15,42 @@
   }
 }
 
+:root {
+  /*
+   * Tells the browser the page has both themes. Without it Safari renders its
+   * own furniture — the keyboard's autofill accessory bar, form controls,
+   * scrollbars — in light mode regardless of the system setting, which is the
+   * white band that appears above the keyboard on a dark phone.
+   */
+  color-scheme: light dark;
+}
+
 html {
   /* Safari otherwise inflates text on rotation, which reflows the whole chat. */
   -webkit-text-size-adjust: 100%;
+
+  /*
+   * The app paints its background on a div inside #root. Anything outside that
+   * div — the overscroll area, and the strip iOS uncovers when the keyboard
+   * animates in — falls through to the document, which is white by default.
+   * These two rules are what make that strip match the app instead of flashing
+   * white. Kept in step with Layout's `bg-white dark:bg-neutral-950` by hand;
+   * there is no way to read a Tailwind class from here.
+   */
+  background-color: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  html {
+    background-color: #0a0a0a; /* neutral-950 */
+  }
 }
 
 body {
+  background-color: inherit;
   -webkit-tap-highlight-color: transparent;
+  /* Stops the whole document rubber-banding and exposing that background. */
+  overscroll-behavior: none;
 }
 
 /* Markdown inside assistant messages: readable defaults without a plugin. */
