@@ -32,9 +32,9 @@ services:
       # Inside the compose network, Postgres is reachable as `postgres:5432`
       # — the host-mapped POSTGRES_PORT above is only for tools on the host.
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-mini_agent}
-      PORT: 3001
+      PORT: ${API_PORT:-3001}
     ports:
-      - "3001:3001"
+      - "${API_HOST_PORT:-3001}:${API_PORT:-3001}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,8 +62,13 @@ services:
       dockerfile: apps/web/Dockerfile
     container_name: mini-agent-web
     restart: unless-stopped
+    environment:
+      # nginx renders these into its proxy_pass at start; they have to agree
+      # with the API's PORT above.
+      API_HOST: ${API_HOST:-api}
+      API_PORT: ${API_PORT:-3001}
     ports:
-      - "3000:80"
+      - "${WEB_PORT:-3000}:80"
     depends_on:
       - api
 

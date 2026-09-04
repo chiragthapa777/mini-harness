@@ -47,12 +47,32 @@ The web UI is on `WEB_PORT` (8080 by default). Sign in with the `ADMIN_EMAIL` /
 If the images are private, `docker login ghcr.io` with a PAT that has `read:packages`
 before pulling.
 
-### What is exposed
+### Ports, and how the UI finds the API
 
-Only `web` publishes a port. Postgres, the API, and the worker are reachable only on the
-compose network. Put TLS in front of `web` — Caddy, nginx, or a load balancer — and keep
-it the only thing listening publicly. The API has no CORS handling and expects to be
-reached through the web container's `/api/` proxy.
+The frontend holds no API URL. It calls relative `/api` paths, and nginx inside the `web`
+container forwards them to the `api` service over the compose network. That is why the
+same image works on localhost, in a VPC, and behind any domain with no rebuild — there is
+no `VITE_API_URL` baked in at build time to get wrong.
+
+| Variable | Default | What it is |
+|---|---|---|
+| `WEB_PORT` | 8080 | Host port for the UI |
+| `API_PORT` | 3001 | Port the API listens on, and the one nginx forwards to |
+| `API_HOST_PORT` | 3001 | Host port for the API |
+
+`API_PORT` is read by both `api` (as `PORT`) and `web` (as nginx's upstream), so the two
+cannot drift. Moving the API is one variable:
+
+```sh
+API_PORT=4000 API_HOST_PORT=4000 docker compose up -d
+```
+
+Publishing the API at all is optional — the UI never uses the host port, so deleting the
+`ports:` block under `api` costs it nothing and leaves `web` as the only public listener,
+which is the shape to prefer in a VPC. Put TLS in front of `web`; the API has no CORS
+handling and expects to be reached through the proxy.
+
+Postgres is never published.
 
 ## Schema
 

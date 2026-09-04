@@ -31,7 +31,13 @@ RUN pnpm --filter @mini-agent/web build
 # --- serve stage ---------------------------------------------------------
 FROM nginx:alpine
 
-COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+# A template, not a config: the entrypoint renders it with envsubst at start,
+# so the API's host and port come from the environment. The defaults below are
+# what compose uses, so the image still works with no configuration at all.
+ENV API_HOST=api
+ENV API_PORT=3001
+
+COPY apps/web/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 
 EXPOSE 80

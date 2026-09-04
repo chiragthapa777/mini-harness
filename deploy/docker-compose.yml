@@ -15,10 +15,14 @@
 # The root `docker-compose.yml` is the development one — it builds from source
 # and exposes Postgres to the host. This is the one to copy onto a server.
 #
-# Only `web` publishes a port. Postgres, the API and the worker talk over the
-# compose network and are not reachable from outside the host, which is what
-# you want inside a VPC: put a TLS terminator (Caddy, nginx, an ALB) in front
-# of `web` and let it be the only thing listening publicly.
+# Ports: the web UI on WEB_PORT (8080), the API on API_HOST_PORT (3001). The
+# UI does not use the published API port — it calls relative /api paths, which
+# nginx forwards over the compose network — so publishing the API is only for
+# reaching it directly, and commenting out its `ports:` costs the UI nothing.
+# That is the shape to prefer inside a VPC: one public listener, with a TLS
+# terminator (Caddy, nginx, an ALB) in front of `web`.
+#
+# Postgres is never published.
 
 name: mini-agent
 
@@ -64,15 +68,20 @@ services:
     env_file: [.env]
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mini_agent}
-      PORT: 3002
-    # No `ports:` — `web` proxies /api to this service over the compose network.
+      PORT: ${API_PORT:-3001}
+    # Published so the API can be reached directly. The UI does not go through
+    # this — drop these two lines and the app still works.
+    ports:
+      - "${API_HOST_PORT:-3001}:${API_PORT:-3001}"
     depends_on:
       postgres:
         condition: service_healthy
       db-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      # The same variable the API listens on, so moving the port cannot leave
+      # the health check probing the old one.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${API_PORT:-3001}/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -99,12 +108,20 @@ services:
       db-init:
         condition: service_completed_successfully
 
-  # nginx serving the built SPA, proxying /api/ to the api service. This is the
-  # only service that listens on the host.
+  # nginx serving the built SPA. The frontend holds no API URL at all — it
+  # calls relative /api paths and nginx forwards them to the api service over
+  # the compose network, so the same image works on localhost, in a VPC, and
+  # behind any domain.
   web:
     image: ${REGISTRY:-ghcr.io/chiragthapa777/mini-harness}/web:${VERSION:-latest}
     pull_policy: always
     restart: unless-stopped
+    environment:
+      # Where nginx forwards /api. `api` is the service name on the compose
+      # network, not a hostname anyone outside needs to resolve; the port has
+      # to match the API's PORT above, which is why both read the same var.
+      API_HOST: ${API_HOST:-api}
+      API_PORT: ${API_PORT:-3001}
     ports:
       - "${WEB_PORT:-8080}:80"
     depends_on:

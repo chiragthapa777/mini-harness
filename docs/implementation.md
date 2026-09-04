@@ -371,7 +371,9 @@ configurable window (`LOGIN_MAX_ATTEMPTS`/`LOGIN_LOCKOUT_MINUTES`).
 ## 5. Deployment
 
 `deploy/docker-compose.yml` runs the published GHCR images — Postgres, API, worker, and
-nginx serving the web app — with only `web` publishing a port. A one-shot `db-init`
+nginx serving the web app. The frontend holds no API URL: it calls relative `/api` paths
+and nginx forwards them over the compose network, with the upstream rendered from
+`API_HOST`/`API_PORT` at container start rather than baked into the image. A one-shot `db-init`
 service applies `packages/db/schema.sql` (baked into the API image, idempotent, re-run on
 every deploy) before anything else starts. See [`docs/deploy.md`](deploy.md).
 
