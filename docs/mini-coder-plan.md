@@ -1,7 +1,7 @@
 # mini-coder — plan
 
 A single-user coding-agent CLI. The harness runs locally; the only remote call is the LLM API.
-How the UI and core talk: [mini-coder-architecture.md](mini-coder-architecture.md).
+UI–core design: [mini-coder-architecture.md](mini-coder-architecture.md).
 
 ## Reuse
 
