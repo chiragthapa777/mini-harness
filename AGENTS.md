@@ -15,6 +15,9 @@ published images; the tag is the release signal.
 TUI install: [docs/tui.md](docs/tui.md) — building `apps/tui` into an installable
 `mini-agent` command, and what it would take to ship a standalone binary.
 
+mini-coder plan: [docs/mini-coder-plan.md](docs/mini-coder-plan.md) — the local coding-agent
+CLI: what it reuses from this repo, its design, and the phased build order.
+
 Agent run walk-through: [docs/agent-run.md](docs/agent-run.md) — how one run works end to
 end (working memory, the loop, tool calls, persistence), with file references.
 
