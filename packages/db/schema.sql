@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   email                 text NOT NULL UNIQUE,
   password_hash         text NOT NULL,
   role                  text NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  blocked               boolean NOT NULL DEFAULT false,
   failed_login_attempts int NOT NULL DEFAULT 0,
   locked_until          timestamptz,
   created_at            timestamptz NOT NULL DEFAULT now()
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin'));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts int NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked boolean NOT NULL DEFAULT false;
 
 -- ---------------------------------------------------------------- episodic
 -- Append-only log of what happened. Retrieval is RAG for relevance plus

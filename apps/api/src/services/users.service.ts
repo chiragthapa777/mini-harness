@@ -7,6 +7,7 @@ export interface UserRow {
   email: string;
   password_hash: string;
   role: UserRole;
+  blocked: boolean;
   failed_login_attempts: number;
   locked_until: Date | null;
   created_at: Date;
@@ -21,7 +22,7 @@ export async function createUser(
   const [row] = await query<UserRow>(
     `INSERT INTO users (email, password_hash, role)
      VALUES ($1, $2, $3)
-     RETURNING id::text, email, password_hash, role, failed_login_attempts, locked_until, created_at`,
+     RETURNING id::text, email, password_hash, role, blocked, failed_login_attempts, locked_until, created_at`,
     [email, passwordHash, role],
   );
   if (!row) throw new Error("failed to create user");
@@ -42,7 +43,7 @@ export async function listUsers({
 }: { limit?: number; offset?: number } = {}): Promise<{ users: PublicUser[]; total: number }> {
   const [users, countRows] = await Promise.all([
     query<PublicUser>(
-      `SELECT id::text, email, role, failed_login_attempts, locked_until, created_at
+      `SELECT id::text, email, role, blocked, failed_login_attempts, locked_until, created_at
          FROM users
         ORDER BY created_at ASC
         LIMIT $1 OFFSET $2`,
@@ -56,7 +57,7 @@ export async function listUsers({
 
 export async function findUserByEmail(email: string): Promise<UserRow | undefined> {
   const [row] = await query<UserRow>(
-    `SELECT id::text, email, password_hash, role, failed_login_attempts, locked_until, created_at
+    `SELECT id::text, email, password_hash, role, blocked, failed_login_attempts, locked_until, created_at
        FROM users
       WHERE email = $1`,
     [email],
@@ -66,7 +67,7 @@ export async function findUserByEmail(email: string): Promise<UserRow | undefine
 
 export async function findUserById(id: string): Promise<UserRow | undefined> {
   const [row] = await query<UserRow>(
-    `SELECT id::text, email, password_hash, role, failed_login_attempts, locked_until, created_at
+    `SELECT id::text, email, password_hash, role, blocked, failed_login_attempts, locked_until, created_at
        FROM users
       WHERE id = $1`,
     [id],
@@ -107,6 +108,11 @@ export async function recordSuccessfulLogin(id: string): Promise<void> {
 /** Admin control: promote/demote a role. */
 export async function setUserRole(id: string, role: UserRole): Promise<void> {
   await query(`UPDATE users SET role = $2 WHERE id = $1`, [id, role]);
+}
+
+/** Admin control: a blocked account cannot log in, and its existing tokens stop working. */
+export async function setUserBlocked(id: string, blocked: boolean): Promise<void> {
+  await query(`UPDATE users SET blocked = $2 WHERE id = $1`, [id, blocked]);
 }
 
 /** Admin control: clear a lockout without waiting it out. */
