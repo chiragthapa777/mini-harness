@@ -40,8 +40,8 @@ A single-user coding-agent CLI. The harness runs locally; the only remote call i
 
 Each phase ends with typecheck and tests green.
 
-## Open questions
+## Architecture decisions
 
-1. Loop: new in `coder-core`, or extend `packages/core`'s?
-2. MCP: our own stdio client, or the official SDK?
-3. Distribution: Node bundle, or standalone binary?
+1. Loop: written new in `coder-core`; the server's loop is untouched.
+2. MCP: the official `@modelcontextprotocol/sdk` (stdio and HTTP).
+3. Distribution: esbuild single-file Node bundle (Node 22+).
