@@ -27,7 +27,7 @@ Ink uses the child process too: one transport, exercised by every run.
 | Package | Contains | May import |
 |---|---|---|
 | `coder-protocol` | message schemas (zod), `PROTOCOL_VERSION`, JSON-RPC `Connection` | zod |
-| `coder-core` | `Session`, loop, permission gate, session log | protocol, `llm`, `core/protocol` |
+| `coder-core` | `Session`, loop, permission gate, memory | protocol, `llm`, `core/protocol` |
 | `coder-tools` | `read_file`, `edit_file`, `bash`, … | `coder-core` types |
 | `apps/coder` | `main.ts`, `ui/`, `serve.ts` | `ui/`: protocol only |
 
@@ -107,7 +107,7 @@ UI                         core Session                 llm / tools
 - `ChatClient` (`packages/llm`)
 - `Tool { name, schema, run(input, { signal, onOutput }) }`
 - `PermissionGate.check(call) → allow | deny | ask`
-- `SessionLog`: JSONL of events and LLM history
+- `Memory`: skills, `AGENTS.md`, facts, session log ([mini-coder-memory.md](mini-coder-memory.md))
 
 Tests drive `Session` through a `Connection` over in-memory streams with a fake `ChatClient`: the real code path.
 
