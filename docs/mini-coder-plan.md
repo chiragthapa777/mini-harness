@@ -5,45 +5,45 @@ UI–core design: [mini-coder-architecture.md](mini-coder-architecture.md).
 
 ## Reuse
 
-- `packages/llm`: the provider interface. It gets an `AbortSignal`, and the caller can pass API keys. The server still reads keys from its config.
-- `packages/core` protocol: the `tool_call` format, imported through a `./protocol` export.
-- Not used: `config`, `mcp`, `memory`, `db`, `jobs`, `agent`, `apps/*`.
+- `packages/llm`: providers, with cancellation and caller-supplied keys.
+- `packages/core/protocol`: the `tool_call` format.
 
 ## Layout
 
-- `apps/coder`: Ink TUI, headless `-p`, and `serve` (the core process); the `mini-coder` command.
-- `packages/coder-protocol`: the JSON-RPC contract between UI and core.
-- `packages/coder-core`: session, loop, context builder, permission gate, compaction, MCP.
-- `packages/coder-tools`: file tools, `glob`, `grep`, `bash`, path guard, checkpoints.
-- `packages/coder-config`: layered settings (global → project → local → flags).
+- `apps/coder`: `main.ts`, `ui/` (Ink, headless), `serve.ts` (core process).
+- `packages/coder-protocol`: the JSON-RPC contract.
+- `packages/coder-core`: session, loop, permission gate, context, MCP.
+- `packages/coder-tools`: tools, path guard, checkpoints.
+- `packages/coder-config`: layered settings.
 
 ## Settled
 
 - File content stays in JSON tool calls; parse errors go back to the model.
-- Overwriting a file needs a prior read and an unchanged mtime.
-- Every edit is checkpointed; `/undo` reverts the last turn, except changes made through bash.
-- `grep` uses `rg` if installed, otherwise a Node fallback.
-- `remember()` writes `.mini-coder/MEMORY.md` (gitignored), never `AGENTS.md`.
-- The session log (JSONL) is the trace; OpenTelemetry is opt-in.
+- Overwriting needs a prior read and an unchanged mtime.
+- Edits are checkpointed; `/undo` reverts the last turn, except bash changes.
+- `grep` uses `rg`, else a Node fallback.
+- `remember()` writes `.mini-coder/MEMORY.md`, never `AGENTS.md`.
 - Each turn is capped at 100 iterations and a token budget.
-- Headless mode: "ask" means deny.
-- macOS/Linux first. The OS sandbox is opt-in and comes last.
+- macOS/Linux first.
 
 ## Phases
 
-0. Cancellation in `llm`, and the `core` protocol export. **Done.**
-1. Protocol, loop, `read_file`/`edit_file`/`bash`, `serve`, `-p`.
-2. Ink TUI.
-3. Permissions, `write_file`/`glob`/`grep`.
-4. Config, `AGENTS.md`, memory.
-5. Compaction, sessions.
-6. MCP, skills.
-7. OpenTelemetry, sandbox.
+| # | Phase | Done when |
+|---|---|---|
+| 0 | `llm` cancellation, `core/protocol` export. **Done.** | — |
+| 1 | `coder-protocol`: schemas, `Connection`, version check | requests, notifications and core → UI requests round-trip over in-memory streams |
+| 2 | `coder-core` + `serve`: session, loop, stub gate; `read_file`, `edit_file`, `bash` | a scripted fake-model session runs tool → permission → result → `turn_end`, and aborts cleanly |
+| 3 | Headless `-p`, process lifecycle, bundle | `mini-coder -p` works against a real model; quitting or crashing either side ends both |
+| 4 | Ink UI: fold, transcript, tool cards, permission prompt, Esc, input queue | interactive session works; `ui/` import boundary test passes |
+| 5 | Permissions: rules, modes, bash splitting, deny list; `write_file`, `glob`, `grep` | table-driven rule tests pass |
+| 6 | `coder-config`, `AGENTS.md`, memory, `/model` | layers merge; deny always wins |
+| 7 | Session log, `resume`, truncation, compaction | resumed session rebuilds by replay; long session compacts |
+| 8 | MCP (official SDK), skills | MCP tool runs after approval |
+| 9 | Opt-in: OpenTelemetry, bash sandbox | off by default |
 
 Each phase ends with typecheck and tests green.
 
-## Architecture decisions
+## Decisions
 
-1. Loop: written new in `coder-core`; the server's loop is untouched.
-2. MCP: the official `@modelcontextprotocol/sdk` (stdio and HTTP).
-3. Distribution: esbuild single-file Node bundle (Node 22+).
+- New loop in `coder-core`; the server loop is untouched.
+- Distribution: esbuild single-file Node bundle (Node 22+).
