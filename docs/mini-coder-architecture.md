@@ -1,6 +1,6 @@
 # mini-coder — architecture
 
-How the UI and core split and talk. Only what phases 1–2 need.
+How the UI and core split and talk. Only what phases 1–3 need.
 
 ## Shape
 

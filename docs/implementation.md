@@ -403,10 +403,24 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
   on timeout or Esc, `cd` carried over via file descriptor 3, stdin closed, background
   jobs do not hang it). `paths.ts`: realpath, inside the project, never `.env*` (except
   `.env.example`), `~/.ssh`, `~/.mini-coder` or `.mini-coder/settings*.json`.
-- **`apps/coder`** — `src/serve.ts` wires core + tools + `llm` (the only place they
-  meet); `mini-coder serve` runs it on stdin/stdout, logs to stderr, ignores SIGINT
-  (Ctrl+C is the UI's call). `src/main.ts` knows only `serve` until phase 3.
-  `test/serve.test.ts` runs the real process against a local fake of OpenRouter.
+- **`apps/coder`** — one command, two roles (`src/main.ts`): `mini-coder serve` is the
+  core, anything else is a UI that spawns it.
+  - `src/serve.ts` wires core + tools + `llm` (the only place they meet), runs on
+    stdin/stdout, logs to stderr, ignores SIGINT when spawned by a UI (Ctrl+C is the UI's call; run by hand in a terminal it prints a hint and Ctrl+C quits).
+  - `src/ui/core-process.ts` — `startCore()` spawns the same command as `serve`, with
+    stderr appended to `~/.mini-coder/logs/<date>.log`. `stop()` sends `shutdown` and
+    kills the core after 2 seconds; `crashed` rejects if the core exits on its own. The
+    UI dying closes the core's stdin, which the core treats as shutdown.
+  - `src/ui/headless.ts` — `mini-coder -p "<prompt>" [--model provider:model] [--mode …]`:
+    one turn, reply text on stdout, every permission prompt denied. Exit 0 on
+    `end_turn`, 1 on any other stop or a core crash, 130 on Ctrl+C, 2 on bad arguments.
+    `ui/` imports only `coder-protocol`.
+  - `build.ts` — `pnpm --filter @mini-agent/coder build` bundles everything into
+    `dist/mini-coder.mjs` (esbuild, one file, Node 22+), the package's `bin`. The API
+    key comes from the environment (`OPENROUTER_API_KEY`, …) until phase 6.
+  - Tests run the real processes against a local fake of OpenRouter:
+    `test/serve.test.ts` (the core alone), `test/headless.test.ts` (`-p`, and either
+    side dying ending both). No interactive UI until phase 4.
 
 ---
 

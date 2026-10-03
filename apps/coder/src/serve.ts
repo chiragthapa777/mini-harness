@@ -30,8 +30,12 @@ export function runServe(): void {
 
   // Ctrl+C reaches every process in the terminal's foreground group, this one
   // included. Interrupting is the UI's decision; it tells us with `abort` or
-  // `shutdown`.
-  process.on("SIGINT", () => {});
+  // `shutdown`. A person who ran `serve` by hand has no UI, so Ctrl+C stays theirs.
+  if (process.stdin.isTTY) {
+    console.error('mini-coder serve: the core, no UI. It speaks JSON-RPC on stdin/stdout. Ctrl+C to quit; use `mini-coder -p "…"` to run a prompt.');
+  } else {
+    process.on("SIGINT", () => {});
+  }
 
   let exiting = false;
   const exit = (code = 0) => {
