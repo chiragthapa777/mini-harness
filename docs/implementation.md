@@ -27,6 +27,7 @@ run actually works step by step (the loop, tool calls, working memory), see
 | Cron / scheduled jobs | Built (`packages/jobs` scheduler, `scheduled_jobs`) |
 | Named agent personas (per-persona system prompt/config) | Not built — one global `SYSTEM_PROMPT` today (TODO 16) |
 | MCP support | Built (`packages/mcp`, stdio transport) |
+| mini-coder — local coding-agent CLI | In progress — see [`mini-coder-plan.md`](mini-coder-plan.md) and §3.10 |
 
 ---
 
@@ -369,6 +370,22 @@ The only file allowed to touch `process.env` (`src/index.ts`). Zod-validated,
 re-parsed on every `getConfig()` call (not cached at import time) so tests can stub
 per-case and a long-lived server never needs a restart to pick up a changed var. See
 `.env.example` for the full variable list with explanations.
+
+### 3.10 mini-coder packages
+
+The local coding agent. Design in [`mini-coder-architecture.md`](mini-coder-architecture.md);
+none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
+
+- **`packages/coder-protocol`** — the UI ↔ core contract. `messages.ts` holds every
+  message as a zod schema: the five UI → core requests (`initialize`, `submit`,
+  `abort`, `command`, `shutdown`), the core → UI `permission` request, the `event`
+  notification and its `CoreEvent` union, and `PROTOCOL_VERSION`. `connection.ts` is
+  JSON-RPC 2.0 over newline-delimited JSON, symmetric (either side requests); an
+  aborted request is forgotten so a late answer is dropped, and closing the stream
+  rejects everything pending. `endpoints.ts` puts the typed API on top —
+  `CoreEndpoint` (validates incoming params, refuses a mismatched protocol version on
+  `initialize`) and `UiEndpoint` (validates results, skips unknown or malformed
+  events). `memoryConnections()` wires both ends over in-memory streams for tests.
 
 ---
 

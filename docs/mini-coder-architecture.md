@@ -56,7 +56,7 @@ type CoreEvent =
   | { type: "tool_output"; callId: string; chunk: string }
   | { type: "tool_end"; callId: string; output: string; isError: boolean }
   | { type: "usage"; inputTokens: number; outputTokens: number }
-  | { type: "turn_end"; stopReason: "end_turn" | "aborted" | "max_iterations" | "token_budget" | "error"; error?: string };
+  | { type: "turn_end"; stopReason: "end_turn" | "aborted" | "max_iterations" | "token_budget" | "length" | "error"; error?: string };
 ```
 
 Rules:
