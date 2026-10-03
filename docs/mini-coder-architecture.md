@@ -1,6 +1,6 @@
 # mini-coder — architecture
 
-How the UI and core split and talk. Only what phases 1–3 need.
+How the UI and core split and talk. Only what phases 1–4 need.
 
 ## Shape
 
@@ -29,7 +29,7 @@ Ink uses the child process too: one transport, exercised by every run.
 | `coder-protocol` | message schemas (zod), `PROTOCOL_VERSION`, JSON-RPC `Connection` | zod |
 | `coder-core` | `Session`, loop, permission gate, memory | protocol, `llm`, `core/protocol` |
 | `coder-tools` | `read_file`, `edit_file`, `bash`, … | `coder-core` types |
-| `apps/coder` | `main.ts`, `ui/`, `serve.ts` | `ui/`: protocol only |
+| `apps/coder` | `main.ts`, `ui/`, `serve.ts` | `ui/`: protocol and `ink-markdown` only |
 
 A test fails if `ui/` imports `coder-core` or `coder-tools`.
 

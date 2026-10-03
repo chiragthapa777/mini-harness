@@ -1,3 +1,6 @@
+// tsx applies an app's tsconfig only to that app's files, so run from source
+// this file would fall back to classic JSX and need `React` in scope.
+/** @jsxRuntime automatic */
 import { Box, Text } from "ink";
 import { parseBlocks, type Block, type Span } from "./markdown-parser.js";
 

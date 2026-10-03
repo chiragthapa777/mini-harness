@@ -150,10 +150,8 @@ has no collapsible panel, and reasoning would bury the answer). The JWT is cache
 `~/.mini-agent/token`, written 0600, and validated against `/auth/me` on start so an
 expired token drops to the sign-in prompt rather than failing on the first message.
 Agent replies are markdown, because the web app renders them — so the TUI renders them
-too rather than showing literal asterisks and fences. `markdown-parser.ts` (pure, tested)
-covers headings, emphasis, inline code, fenced blocks, lists, quotes, rules and links;
-`Markdown.tsx` maps that onto Ink. Tables and images are deliberately unsupported — a
-terminal cannot show them — and anything unrecognised falls through as plain text.
+too rather than showing literal asterisks and fences, with `<Markdown>` from
+`packages/ink-markdown` (§3.11), shared with mini-coder.
 
 Installable: `pnpm --filter @mini-agent/tui build` bundles it (esbuild) into one
 executable file, `dist/mini-agent.mjs`, which `npm i -g .` or a copy onto PATH turns
@@ -414,13 +412,42 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
   - `src/ui/headless.ts` — `mini-coder -p "<prompt>" [--model provider:model] [--mode …]`:
     one turn, reply text on stdout, every permission prompt denied. Exit 0 on
     `end_turn`, 1 on any other stop or a core crash, 130 on Ctrl+C, 2 on bad arguments.
-    `ui/` imports only `coder-protocol`.
+  - `src/ui/fold.ts` — view state is `fold(state, action)` over the core's events plus
+    what the user sent and notices: an append-only list of user, assistant, tool and
+    notice items. Pure; sending a message marks the turn running at once.
+  - `src/ui/App.tsx`, `src/ui/interactive.tsx` — `mini-coder` with no prompt: the Ink
+    session (needs a terminal), laid out like Claude Code. A welcome box, then the
+    transcript: `> ` user lines, `⏺` replies rendered as markdown, and tool cards
+    (`⏺ Bash(cmd)`, `Read(path)`, `Update(path)`) with a `⎿` result — the first 4 output
+    lines, a line count for reads, a red/green diff for edits. Finished items are
+    printed once (`<Static>`); only the last one redraws. Below: a spinner with elapsed
+    time and tokens, queued messages, a bordered input box, and a footer with the model
+    and mode.
+  - Permission prompt: the command, or the edit as a diff, in full (capped at 20 lines
+    with a visible count), then three choices — yes, yes and don't ask again, no —
+    picked with ↑↓ + Enter or 1-3. It ignores keys for its first 600 ms, so typing
+    ahead cannot approve a call.
+  - Input (`src/ui/input.ts`, pure): one line, cursor with ← → Ctrl+A/E, Ctrl+U clears,
+    ↑ ↓ recall sent messages, pasted line breaks become spaces. Input typed during a
+    turn is queued and sent when the turn ends. Esc aborts the turn and drops the
+    queue. `/clear`, `/undo`, `/model`, `/compact` go to the core; `/help` lists them;
+    `/quit` or Ctrl+C twice exits. Ink and React load only on this path.
   - `build.ts` — `pnpm --filter @mini-agent/coder build` bundles everything into
     `dist/mini-coder.mjs` (esbuild, one file, Node 22+), the package's `bin`. The API
     key comes from the environment (`OPENROUTER_API_KEY`, …) until phase 6.
-  - Tests run the real processes against a local fake of OpenRouter:
-    `test/serve.test.ts` (the core alone), `test/headless.test.ts` (`-p`, and either
-    side dying ending both). No interactive UI until phase 4.
+  - Tests: `test/serve.test.ts` (the core process alone) and `test/headless.test.ts`
+    (`-p`, and either side dying ending both) run the real processes against a local
+    fake of OpenRouter. `test/ui.test.ts` covers the fold, the input line, and fails if `ui/`
+    imports anything but `coder-protocol`, `ink-markdown`, Ink, React or Node. The Ink view has no automated
+    test.
+
+### 3.11 `packages/ink-markdown`
+
+`<Markdown>` for Ink, used by `apps/tui` and `apps/coder`. `markdown-parser.ts` (pure,
+tested) covers headings, emphasis, inline code, fenced blocks, lists, quotes, rules and
+links; `Markdown.tsx` maps that onto Ink. Tables and images are deliberately
+unsupported — a terminal cannot show them — and anything unrecognised falls through as
+plain text.
 
 ---
 

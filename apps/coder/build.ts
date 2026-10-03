@@ -20,12 +20,13 @@ await build({
   banner: {
     js: [
       "#!/usr/bin/env node",
-      // The provider SDKs pull in CommonJS that calls `require`, which esbuild
-      // stubs out in an ESM bundle; give it a real one.
+      // Ink and the provider SDKs pull in CommonJS that calls `require`, which
+      // esbuild stubs out in an ESM bundle; give it a real one.
       "import { createRequire as __createRequire } from 'node:module';",
       "const require = __createRequire(import.meta.url);",
     ].join("\n"),
   },
+  alias: { "react-devtools-core": resolve(here, "devtools-stub.ts") },
   logLevel: "info",
 });
 
