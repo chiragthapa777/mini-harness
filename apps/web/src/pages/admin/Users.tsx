@@ -13,7 +13,9 @@ import {
   adminListUsers,
   adminUpdateUser,
   type AdminUser,
+  type AdminUserPatch,
 } from "../../lib/api.js";
+import { useAuth } from "../../lib/AuthContext.js";
 import { useAdmin } from "./AdminLayout.js";
 
 const LIMIT = 25;
@@ -21,6 +23,7 @@ const LIMIT = 25;
 /** There is no self-registration; this page is the only way an account gets created. */
 export function AdminUsers() {
   const { refreshUsers } = useAdmin();
+  const { user: currentUser } = useAuth();
   const [rows, setRows] = useState<AdminUser[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -76,7 +79,7 @@ export function AdminUsers() {
     }
   }
 
-  async function update(id: string, patch: { role?: "user" | "admin"; unlock?: boolean }) {
+  async function update(id: string, patch: AdminUserPatch) {
     setPendingId(id);
     try {
       await adminUpdateUser(id, patch);
@@ -98,7 +101,7 @@ export function AdminUsers() {
       cell: (user) => (
         <select
           value={user.role}
-          disabled={pendingId === user.id}
+          disabled={pendingId === user.id || user.id === currentUser?.id}
           onChange={(e) => void update(user.id, { role: e.target.value as "user" | "admin" })}
           className="rounded-md border border-neutral-200 bg-transparent px-1.5 py-0.5 text-xs disabled:opacity-40 dark:border-neutral-700"
         >
@@ -111,7 +114,9 @@ export function AdminUsers() {
       header: "Status",
       nowrap: true,
       cell: (user) =>
-        isLocked(user) ? (
+        user.blocked ? (
+          <Badge tone="red">blocked</Badge>
+        ) : isLocked(user) ? (
           <Badge tone="red">locked until {new Date(user.locked_until!).toLocaleTimeString()}</Badge>
         ) : user.failed_login_attempts > 0 ? (
           <Badge tone="amber">
@@ -131,17 +136,30 @@ export function AdminUsers() {
     {
       header: "",
       align: "right",
-      cell: (user) =>
-        isLocked(user) || user.failed_login_attempts > 0 ? (
-          <button
-            type="button"
-            disabled={pendingId === user.id}
-            onClick={() => void update(user.id, { unlock: true })}
-            className={buttonClass}
-          >
-            Unlock
-          </button>
-        ) : null,
+      cell: (user) => (
+        <div className="flex justify-end gap-2">
+          {(isLocked(user) || user.failed_login_attempts > 0) && (
+            <button
+              type="button"
+              disabled={pendingId === user.id}
+              onClick={() => void update(user.id, { unlock: true })}
+              className={buttonClass}
+            >
+              Unlock
+            </button>
+          )}
+          {user.id !== currentUser?.id && (
+            <button
+              type="button"
+              disabled={pendingId === user.id}
+              onClick={() => void update(user.id, { blocked: !user.blocked })}
+              className={buttonClass}
+            >
+              {user.blocked ? "Unblock" : "Block"}
+            </button>
+          )}
+        </div>
+      ),
     },
   ];
 

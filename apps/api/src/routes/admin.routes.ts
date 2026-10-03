@@ -12,7 +12,7 @@ import { ingestDocument, listFacts } from "@mini-agent/memory";
 import { Router } from "express";
 import { z } from "zod";
 import { logger } from "../logger.js";
-import { requireAdmin, requireAuth } from "../middleware/auth.middleware.js";
+import { requireAdmin, requireAuth, type AuthedRequest } from "../middleware/auth.middleware.js";
 import { hashPassword } from "../services/auth.service.js";
 import { getTrace, listTraces } from "../services/traces.service.js";
 import {
@@ -20,6 +20,7 @@ import {
   findUserByEmail,
   findUserById,
   listUsers,
+  setUserBlocked,
   setUserRole,
   unlockUser,
 } from "../services/users.service.js";
@@ -27,8 +28,11 @@ import { clampInt, message, parseDate } from "../utils/http.js";
 
 export const adminRoutes = Router();
 
-/** Every route below is admin-only. */
-adminRoutes.use(requireAuth, requireAdmin);
+/**
+ * Scoped to `/admin`: a pathless `use` runs for every request that reaches this
+ * router, which would put the admin check in front of the routers mounted after it.
+ */
+adminRoutes.use("/admin", requireAuth, requireAdmin);
 
 // ------------------------------------------------------------------- users
 
@@ -73,14 +77,17 @@ adminRoutes.post("/admin/users", async (req, res) => {
 
 const adminUpdateUserSchema = z.object({
   role: z.enum(["user", "admin"]).optional(),
+  blocked: z.boolean().optional(),
   unlock: z.boolean().optional(),
 });
 
-/** Role changes and lockout clears — the two controls an admin needs over an existing account. */
+/** Role changes, blocks, and lockout clears — the controls an admin has over an existing account. */
 adminRoutes.patch("/admin/users/:id", async (req, res) => {
   const parsed = adminUpdateUserSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "role must be 'user' or 'admin', unlock must be a boolean" });
+    res.status(400).json({
+      error: "role must be 'user' or 'admin', blocked and unlock must be booleans",
+    });
     return;
   }
 
@@ -90,12 +97,24 @@ adminRoutes.patch("/admin/users/:id", async (req, res) => {
     return;
   }
 
+  const { role, blocked, unlock } = parsed.data;
+  // An admin who demotes or blocks themselves can lock the last admin out of the panel.
+  if (id === (req as unknown as AuthedRequest).userId && (role !== undefined || blocked !== undefined)) {
+    res.status(400).json({ error: "you cannot change your own role or block yourself" });
+    return;
+  }
+
   try {
-    const { role, unlock } = parsed.data;
     if (role) await setUserRole(id, role);
+    if (blocked !== undefined) await setUserBlocked(id, blocked);
     if (unlock) await unlockUser(id);
     const updated = await findUserById(id);
-    res.json({ id: updated?.id, email: updated?.email, role: updated?.role });
+    res.json({
+      id: updated?.id,
+      email: updated?.email,
+      role: updated?.role,
+      blocked: updated?.blocked,
+    });
   } catch (err) {
     logger.error("admin update user failed", err);
     res.status(500).json({ error: message(err) });

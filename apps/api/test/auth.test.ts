@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import jwt from "jsonwebtoken";
-import { requireAdmin, requireAuth, type AuthedRequest } from "../src/middleware/auth.middleware.js";
+import express from "express";
+import { requireAdmin, verifyToken, type AuthedRequest } from "../src/middleware/auth.middleware.js";
+import { adminRoutes } from "../src/routes/admin.routes.js";
 import { hashPassword, signToken, verifyPassword } from "../src/services/auth.service.js";
 
 const previousSecret = process.env["JWT_SECRET"];
@@ -40,9 +42,9 @@ test("signToken produces a JWT carrying sub, email, and role", () => {
   assert.equal(payload.role, "user");
 });
 
-/** Minimal stand-ins — enough surface for requireAuth without pulling in Express. */
+/** Minimal stand-ins — enough surface for verifyToken without pulling in Express. */
 function fakeReq(header?: string) {
-  return { header: () => header } as unknown as Parameters<typeof requireAuth>[0];
+  return { header: () => header } as unknown as Parameters<typeof verifyToken>[0];
 }
 
 function fakeRes() {
@@ -57,36 +59,36 @@ function fakeRes() {
       return res;
     },
   };
-  return { res: res as unknown as Parameters<typeof requireAuth>[1], state };
+  return { res: res as unknown as Parameters<typeof verifyToken>[1], state };
 }
 
-test("requireAuth rejects a missing bearer token", () => {
+test("verifyToken rejects a missing bearer token", () => {
   const { res, state } = fakeRes();
   let nextCalled = false;
-  requireAuth(fakeReq(undefined), res, () => {
+  verifyToken(fakeReq(undefined), res, () => {
     nextCalled = true;
   });
   assert.equal(nextCalled, false);
   assert.equal(state.status, 401);
 });
 
-test("requireAuth rejects a malformed or invalid token", () => {
+test("verifyToken rejects a malformed or invalid token", () => {
   const { res, state } = fakeRes();
   let nextCalled = false;
-  requireAuth(fakeReq("Bearer not-a-real-token"), res, () => {
+  verifyToken(fakeReq("Bearer not-a-real-token"), res, () => {
     nextCalled = true;
   });
   assert.equal(nextCalled, false);
   assert.equal(state.status, 401);
 });
 
-test("requireAuth attaches userId, userEmail, and userRole from a valid token, then calls next", () => {
+test("verifyToken attaches userId, userEmail, and userRole from a valid token, then calls next", () => {
   const token = signToken({ sub: "user-42", email: "person@example.com", role: "admin" });
   const req = fakeReq(`Bearer ${token}`);
   const { res } = fakeRes();
   let nextCalled = false;
 
-  requireAuth(req, res, () => {
+  verifyToken(req, res, () => {
     nextCalled = true;
   });
 
@@ -118,4 +120,20 @@ test("requireAdmin calls next for an admin", () => {
     nextCalled = true;
   });
   assert.equal(nextCalled, true);
+});
+
+test("the admin check does not run for routes mounted after the admin router", async () => {
+  const app = express();
+  app.use(adminRoutes);
+  app.get("/chat", (_req, res) => {
+    res.json({ ok: true });
+  });
+  const server = app.listen(0);
+  const { port } = server.address() as { port: number };
+  try {
+    assert.equal((await fetch(`http://127.0.0.1:${port}/chat`)).status, 200);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/admin/users`)).status, 401);
+  } finally {
+    server.close();
+  }
 });

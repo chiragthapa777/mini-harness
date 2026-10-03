@@ -1,5 +1,5 @@
 import { getConfig } from "@mini-agent/config";
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { logger } from "../logger.js";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.middleware.js";
@@ -48,6 +48,11 @@ authRoutes.post("/auth/login", async (req, res) => {
       return;
     }
 
+    if (user.blocked) {
+      res.status(403).json({ error: "account blocked" });
+      return;
+    }
+
     await recordSuccessfulLogin(user.id);
     const token = signToken({ sub: user.id, email: user.email, role: user.role });
     res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
@@ -57,7 +62,7 @@ authRoutes.post("/auth/login", async (req, res) => {
   }
 });
 
-authRoutes.get("/auth/me", requireAuth, async (req, res) => {
+authRoutes.get("/auth/me", requireAuth, async (req: Request, res: Response) => {
   const { userId } = req as AuthedRequest;
   const user = await findUserById(userId);
   if (!user) {

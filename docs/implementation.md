@@ -58,7 +58,7 @@ run actually works step by step (the loop, tool calls, working memory), see
   `/admin/users`, `/admin/memory`, `/admin/traces`, `/admin/jobs`, `/admin/schedules`
   (`/admin` redirects to the first). `AdminLayout` holds the nav and fetches the user
   list once, since four of the five pages need it for a picker.
-  - `Users` — create accounts, change role, clear a lockout.
+  - `Users` — create accounts, change role, block/unblock, clear a lockout.
   - `Memory` — any user's semantic facts, filterable by kind, with a "show merged" toggle
     that reveals archived facts and the id each was merged into, plus .txt/.md upload.
   - `Traces` — filter by user, model, error status, date range; a row expands into the
@@ -92,11 +92,11 @@ utils/                        http.ts (message/clampInt/parseDate), sse.ts (SSE 
 | Method | Path | Auth | What |
 |---|---|---|---|
 | GET | `/health` | — | liveness |
-| POST | `/auth/login` | — | email+password → JWT; 423 if locked out |
+| POST | `/auth/login` | — | email+password → JWT; 423 if locked out, 403 if blocked |
 | GET | `/auth/me` | user | current user from the token |
 | GET | `/admin/users` | admin | list users, paginated (`{users,total}`) |
 | POST | `/admin/users` | admin | create a user |
-| PATCH | `/admin/users/:id` | admin | change role and/or clear lockout |
+| PATCH | `/admin/users/:id` | admin | change `role`, set `blocked`, and/or `unlock`; not own role/block |
 | GET | `/admin/facts` | admin | a user's semantic facts, paginated (`includeArchived`) |
 | POST | `/admin/facts/upload` | admin | chunk a text file into a user's semantic memory |
 | GET | `/admin/traces` | admin | traces, filterable by user/model/error/date |
@@ -309,7 +309,7 @@ Schema (`schema.sql`, applied on first boot of an empty Postgres volume):
 
 | Table | Purpose |
 |---|---|
-| `users` | auth — email, password hash, role, lockout state |
+| `users` | auth — email, password hash, role, `blocked`, lockout state |
 | `conversations` | one row per chat thread, plus its rolling summary and watermark |
 | `messages` | episodic log — role, content, embedding, `consolidated_at` |
 | `events` | dated events — one per conversation, holding that conversation's summary; what episodic RAG ranks |
@@ -364,8 +364,12 @@ per-case and a long-lived server never needs a restart to pick up a changed var.
 No self-registration. `ADMIN_EMAIL`/`ADMIN_PASSWORD` seed one admin at startup
 (`services/bootstrap.service.ts`, no-op once that account exists); every other account is
 created by an admin via `POST /admin/users`. Passwords: salted `scrypt`, timing-safe
-compare (`services/auth.service.ts`). JWT carries `sub`/`email`/`role`, verified by
-`requireAuth` on every protected route. Repeated failed logins lock the account for a
+compare (`services/auth.service.ts`). JWT carries `sub`/`email`/`role`. `requireAuth`
+(`verifyToken` + `loadCurrentUser`) runs on every protected route: it verifies the token,
+then reads role and `blocked` from the database, so a role change or block applies on the
+next request, not at token expiry. A blocked account gets 403 on login and on every
+request. Role `user` reaches chat, conversations and schedules; `requireAdmin` guards only
+`/admin/*`. Repeated failed logins lock the account for a
 configurable window (`LOGIN_MAX_ATTEMPTS`/`LOGIN_LOCKOUT_MINUTES`).
 
 ## 5. Deployment

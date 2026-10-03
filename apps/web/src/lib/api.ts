@@ -41,6 +41,7 @@ export interface AdminUser {
   id: string;
   email: string;
   role: "user" | "admin";
+  blocked: boolean;
   failed_login_attempts: number;
   locked_until: string | null;
   created_at: string;
@@ -60,7 +61,9 @@ export const adminCreateUser = (email: string, password: string, role: "user" | 
     body: JSON.stringify({ email, password, role }),
   });
 
-export const adminUpdateUser = (id: string, patch: { role?: "user" | "admin"; unlock?: boolean }) =>
+export type AdminUserPatch = { role?: "user" | "admin"; blocked?: boolean; unlock?: boolean };
+
+export const adminUpdateUser = (id: string, patch: AdminUserPatch) =>
   json<{ id: string; email: string; role: "user" | "admin" }>(`/admin/users/${id}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
