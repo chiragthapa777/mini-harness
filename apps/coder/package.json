@@ -1,0 +1,22 @@
+{
+  "name": "@mini-agent/coder",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "tsx src/main.ts serve",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@mini-agent/coder-core": "workspace:*",
+    "@mini-agent/coder-protocol": "workspace:*",
+    "@mini-agent/coder-tools": "workspace:*",
+    "@mini-agent/llm": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.13",
+    "typescript": "^5.7.2"
+  }
+}

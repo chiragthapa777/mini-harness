@@ -32,7 +32,7 @@ Design: [architecture](mini-coder-architecture.md), [memory](mini-coder-memory.m
 |---|---|---|
 | 0 | `llm` cancellation, `core/protocol` export. **Done.** | — |
 | 1 | `coder-protocol`: schemas, `Connection`, version check. **Done.** | messages round-trip both ways over in-memory streams |
-| 2 | `coder-core` + `serve`: session, loop, stub gate; `read_file`, `edit_file`, `bash` | fake-model session: tool → permission → result → `turn_end`; abort works |
+| 2 | `coder-core` + `serve`: session, loop, stub gate; `read_file`, `edit_file`, `bash`. **Done.** | fake-model session: tool → permission → result → `turn_end`; abort works |
 | 3 | Headless `-p`, process lifecycle, bundle | `-p` works with a real model; either side exiting ends both |
 | 4 | Ink UI: fold, transcript, tool cards, permission prompt, Esc, input queue | interactive session works; `ui/` import boundary test passes |
 | 5 | Permissions: rules, modes, bash splitting, deny list; `write_file`, `glob`, `grep` | table-driven rule tests pass |

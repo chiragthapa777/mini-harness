@@ -58,6 +58,31 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  apps/coder:
+    dependencies:
+      '@mini-agent/coder-core':
+        specifier: workspace:*
+        version: link:../../packages/coder-core
+      '@mini-agent/coder-protocol':
+        specifier: workspace:*
+        version: link:../../packages/coder-protocol
+      '@mini-agent/coder-tools':
+        specifier: workspace:*
+        version: link:../../packages/coder-tools
+      '@mini-agent/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   apps/tui:
     dependencies:
       '@mini-agent/config':
@@ -185,8 +210,52 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/coder-core:
+    dependencies:
+      '@mini-agent/coder-protocol':
+        specifier: workspace:*
+        version: link:../coder-protocol
+      '@mini-agent/core':
+        specifier: workspace:*
+        version: link:../core
+      '@mini-agent/llm':
+        specifier: workspace:*
+        version: link:../llm
+      zod:
+        specifier: ^4.0.0
+        version: 4.5.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/coder-protocol:
     dependencies:
+      zod:
+        specifier: ^4.0.0
+        version: 4.5.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/coder-tools:
+    dependencies:
+      '@mini-agent/coder-core':
+        specifier: workspace:*
+        version: link:../coder-core
       zod:
         specifier: ^4.0.0
         version: 4.5.4
