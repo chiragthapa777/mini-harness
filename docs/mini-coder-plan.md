@@ -1,6 +1,7 @@
 # mini-coder — plan
 
 A single-user coding-agent CLI. The harness runs locally; the only remote call is the LLM API.
+How the UI and core talk: [mini-coder-architecture.md](mini-coder-architecture.md).
 
 ## Reuse
 
@@ -10,8 +11,9 @@ A single-user coding-agent CLI. The harness runs locally; the only remote call i
 
 ## Layout
 
-- `apps/coder`: Ink TUI, headless `-p`, slash commands; the `mini-coder` command.
-- `packages/coder-core`: loop, context builder, tool registry, permission gate, sessions, compaction, MCP, and the `ToolExecutor`/`MemoryStore`/`TraceSink` interfaces.
+- `apps/coder`: Ink TUI, headless `-p`, and `serve` (the core process); the `mini-coder` command.
+- `packages/coder-protocol`: the JSON-RPC contract between UI and core.
+- `packages/coder-core`: session, loop, context builder, permission gate, compaction, MCP.
 - `packages/coder-tools`: file tools, `glob`, `grep`, `bash`, path guard, checkpoints.
 - `packages/coder-config`: layered settings (global → project → local → flags).
 
@@ -22,7 +24,7 @@ A single-user coding-agent CLI. The harness runs locally; the only remote call i
 - Every edit is checkpointed; `/undo` reverts the last turn, except changes made through bash.
 - `grep` uses `rg` if installed, otherwise a Node fallback.
 - `remember()` writes `.mini-coder/MEMORY.md` (gitignored), never `AGENTS.md`.
-- Traces are saved as local JSONL; OpenTelemetry is opt-in.
+- The session log (JSONL) is the trace; OpenTelemetry is opt-in.
 - Each turn is capped at 100 iterations and a token budget.
 - Headless mode: "ask" means deny.
 - macOS/Linux first. The OS sandbox is opt-in and comes last.
@@ -30,8 +32,8 @@ A single-user coding-agent CLI. The harness runs locally; the only remote call i
 ## Phases
 
 0. Cancellation in `llm`, and the `core` protocol export. **Done.**
-1. Loop, `read_file`/`edit_file`/`bash`, `-p`.
-2. TUI.
+1. Protocol, loop, `read_file`/`edit_file`/`bash`, `serve`, `-p`.
+2. Ink TUI.
 3. Permissions, `write_file`/`glob`/`grep`.
 4. Config, `AGENTS.md`, memory.
 5. Compaction, sessions.
