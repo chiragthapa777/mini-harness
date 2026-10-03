@@ -4,163 +4,94 @@ import { sep } from "node:path";
 import type { Tool } from "@mini-agent/coder-core";
 import { z } from "zod";
 
-const DEFAULT_TIMEOUT_MS = 120_000;
-const MAX_TIMEOUT_MS = 600_000;
-/** SIGTERM first; whatever is still alive this long after gets SIGKILL. */
-const KILL_GRACE_MS = 2_000;
-/** Kept in memory per stream end; the loop caps what the model sees far lower. */
-const KEEP_CHARS = 200_000;
-/**
- * After the shell exits, how long to wait for its pipes to close. A command
- * that started a background process (`npm run dev &`) leaves them open
- * forever, and the call must still return.
- */
-const PIPE_DRAIN_MS = 200;
+const DEFAULT_TIMEOUT = 120_000;
+const MAX_KEPT_OUTPUT = 5_000_000; // characters; the loop shows far less to the model
 
 const schema = z.object({
-  command: z.string().min(1).describe("The command, run with bash -c"),
-  timeout: z
-    .number()
-    .int()
-    .min(1_000)
-    .max(MAX_TIMEOUT_MS)
-    .optional()
-    .describe(`Milliseconds before the command is killed (default ${DEFAULT_TIMEOUT_MS})`),
+  command: z.string().min(1),
+  timeout: z.number().int().min(1_000).max(600_000).optional().describe("milliseconds, default 120000"),
 });
-
-/** Keeps the first and last KEEP_CHARS of a stream of chunks. */
-class Collected {
-  #head = "";
-  #tail = "";
-  #dropped = 0;
-
-  push(chunk: string): void {
-    if (this.#head.length < KEEP_CHARS) {
-      const room = KEEP_CHARS - this.#head.length;
-      this.#head += chunk.slice(0, room);
-      chunk = chunk.slice(room);
-    }
-    if (!chunk) return;
-    this.#tail += chunk;
-    if (this.#tail.length > KEEP_CHARS) {
-      this.#dropped += this.#tail.length - KEEP_CHARS;
-      this.#tail = this.#tail.slice(-KEEP_CHARS);
-    }
-  }
-
-  toString(): string {
-    return this.#dropped
-      ? `${this.#head}\n[… ${this.#dropped} characters omitted …]\n${this.#tail}`
-      : this.#head + this.#tail;
-  }
-}
 
 export const bashTool: Tool<typeof schema> = {
   name: "bash",
   description:
-    "Run a shell command in the project. The working directory carries over between " +
-    "calls (cd persists); environment variables do not. stdin is closed, so interactive " +
-    "commands will not wait for input. Output is stdout and stderr interleaved; a " +
-    "non-zero exit code is reported at the end.",
+    "Run a shell command in the project. `cd` carries over to the next call; environment " +
+    "variables do not. stdin is closed. A non-zero exit code is shown after the output.",
   kind: "exec",
   schema,
-  async run({ command, timeout = DEFAULT_TIMEOUT_MS }, ctx) {
+  async run({ command, timeout = DEFAULT_TIMEOUT }, ctx) {
     ctx.signal.throwIfAborted();
 
-    // The previous cwd may have been deleted since; fall back to the root.
-    const cwd = (await stat(ctx.shell.cwd).catch(() => null))?.isDirectory() ? ctx.shell.cwd : ctx.root;
+    // Start where the last command ended, unless that folder is gone.
+    const folder = await stat(ctx.shell.cwd).catch(() => null);
+    const cwd = folder?.isDirectory() ? ctx.shell.cwd : ctx.root;
 
-    // fd 3 reports the final working directory without mixing it into the
-    // output. A command that runs `exit` never gets there; its cwd stays put.
-    const script = `${command}\n__mini_coder_status=$?\nprintf '%s' "$PWD" >&3\nexit $__mini_coder_status\n`;
-
+    // After the command, bash writes its working directory to file descriptor 3,
+    // so we learn where a `cd` went without mixing it into the output.
+    const script = `${command}\n__status=$?\nprintf '%s' "$PWD" >&3\nexit $__status\n`;
     const child = spawn("bash", ["-c", script], {
       cwd,
-      // Its own process group, so a kill reaches everything it started.
-      detached: true,
+      detached: true, // its own process group, so we can kill everything it started
       stdio: ["ignore", "pipe", "pipe", "pipe"],
     });
 
-    const output = new Collected();
-    let finalCwd = "";
+    let output = "";
+    let newCwd = "";
     let timedOut = false;
 
-    const onChunk = (text: string) => {
-      output.push(text);
-      ctx.onOutput(text);
-    };
-    // Decoded by the stream, so a character split across two chunks survives.
     for (const stream of [child.stdout!, child.stderr!]) {
-      stream.setEncoding("utf8");
-      stream.on("data", onChunk);
+      stream.setEncoding("utf8"); // keeps characters split across chunks intact
+      stream.on("data", (text: string) => {
+        ctx.onOutput(text);
+        if (output.length < MAX_KEPT_OUTPUT) output += text;
+      });
     }
     const cwdPipe = child.stdio[3] as NodeJS.ReadableStream;
     cwdPipe.setEncoding("utf8");
-    cwdPipe.on("data", (text: string) => (finalCwd += text));
+    cwdPipe.on("data", (text: string) => (newCwd += text));
 
-    let killTimer: NodeJS.Timeout | undefined;
-    const killGroup = () => {
-      if (child.exitCode !== null || child.signalCode !== null) return;
+    const killAll = () => {
       try {
-        process.kill(-child.pid!, "SIGTERM");
+        process.kill(-child.pid!, "SIGKILL"); // minus: the whole process group
       } catch {
-        return; // already gone
+        // already exited
       }
-      killTimer = setTimeout(() => {
-        try {
-          process.kill(-child.pid!, "SIGKILL");
-        } catch {
-          // gone in the meantime
-        }
-      }, KILL_GRACE_MS);
     };
-
     const timer = setTimeout(() => {
       timedOut = true;
-      killGroup();
+      killAll();
     }, timeout);
-    const onAbort = () => killGroup();
-    ctx.signal.addEventListener("abort", onAbort, { once: true });
+    ctx.signal.addEventListener("abort", killAll);
 
-    const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
-      let exited: { code: number | null; signal: NodeJS.Signals | null } | undefined;
-      const finish = () => {
-        if (!exited) return;
-        for (const stream of [child.stdout, child.stderr, child.stdio[3]]) {
-          (stream as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.();
-        }
-        resolve(exited);
-      };
-      child.on("error", reject);
-      child.on("exit", (code, signal) => {
-        exited = { code, signal };
-        setTimeout(finish, PIPE_DRAIN_MS).unref();
-      });
-      child.on("close", finish);
-    }).finally(() => {
-      clearTimeout(timer);
-      clearTimeout(killTimer);
-      ctx.signal.removeEventListener("abort", onAbort);
-    });
+    const exitCode = await waitForExit(child);
+    clearTimeout(timer);
+    ctx.signal.removeEventListener("abort", killAll);
 
     if (ctx.signal.aborted) throw ctx.signal.reason;
+    if (timedOut) throw new Error(`${output}\n[timed out after ${timeout / 1000}s and was killed]`);
 
     let note = "";
-    if (finalCwd) {
-      if (finalCwd === ctx.root || finalCwd.startsWith(ctx.root + sep)) {
-        ctx.shell.cwd = finalCwd;
-      } else {
-        ctx.shell.cwd = ctx.root;
-        note = `\n[the working directory left the project; it was reset to ${ctx.root}]`;
-      }
+    if (newCwd === ctx.root || newCwd.startsWith(ctx.root + sep)) {
+      ctx.shell.cwd = newCwd;
+    } else if (newCwd) {
+      ctx.shell.cwd = ctx.root;
+      note = `\n[the working directory left the project and was reset to ${ctx.root}]`;
     }
 
-    const text = output.toString() || "(no output)";
-    if (timedOut) {
-      throw new Error(`${text}\n[timed out after ${timeout / 1000}s; the command was killed]`);
-    }
-    const status =
-      exit.code === 0 ? "" : exit.code === null ? `\n[killed by ${exit.signal}]` : `\n[exit code ${exit.code}]`;
-    return `${text}${status}${note}`;
+    const status = exitCode === 0 ? "" : `\n[exit code ${exitCode ?? "none: killed"}]`;
+    return (output || "(no output)") + status + note;
   },
 };
+
+/**
+ * Resolves with the exit code once the output is read. A command that left a
+ * background job running (`npm run dev &`) keeps the pipes open forever, so
+ * after the exit we wait at most a moment for them.
+ */
+function waitForExit(child: ReturnType<typeof spawn>): Promise<number | null> {
+  return new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("close", (code) => resolve(code));
+    child.on("exit", (code) => setTimeout(() => resolve(code), 200));
+  });
+}

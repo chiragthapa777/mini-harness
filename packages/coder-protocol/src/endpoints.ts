@@ -1,81 +1,61 @@
 import { PassThrough } from "node:stream";
 import type { z } from "zod";
-import { Connection, ErrorCode, RpcError } from "./connection.js";
+import { Connection, RpcError } from "./connection.js";
 import {
-  EVENT_METHOD,
+  CommandParams,
+  CoreEvent,
+  InitializeParams,
+  PermissionResult,
   PROTOCOL_VERSION,
-  coreRequests,
-  parseEvent,
-  uiRequests,
-  type CoreEvent,
-  type CoreRequests,
-  type UiRequests,
+  SubmitParams,
+  type CommandResult,
+  type InitializeResult,
+  type PermissionParams,
 } from "./messages.js";
 
-/**
- * The typed halves of the protocol. The core holds a `CoreEndpoint`, a UI
- * holds a `UiEndpoint`; both wrap the same untyped `Connection`. Everything
- * arriving from the other side is validated here, so neither side's code
- * ever sees a message that does not match the schema.
- */
-
-type Awaitable<T> = T | Promise<T>;
-
-export type CoreHandlers = {
-  [M in keyof UiRequests]: (params: UiRequests[M]["params"]) => Awaitable<UiRequests[M]["result"]>;
-};
-
-function parse<S extends z.ZodType>(schema: S, value: unknown, what: string): z.infer<S> {
+/** Validates a message from the other side, or fails the request with "invalid params". */
+function check<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
-  if (!result.success) {
-    const detail = result.error.issues
-      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
-      .join("; ");
-    throw new RpcError(ErrorCode.InvalidParams, `invalid ${what}: ${detail}`);
-  }
-  return result.data;
+  if (result.success) return result.data;
+  const issue = result.error.issues[0];
+  throw new RpcError(`invalid params: ${issue?.path.join(".")} ${issue?.message}`, -32602);
 }
 
+/** What the core does for each UI request. */
+export interface CoreHandlers {
+  initialize(params: InitializeParams): Promise<InitializeResult>;
+  submit(params: SubmitParams): void;
+  abort(): void;
+  command(params: CommandParams): Promise<CommandResult>;
+  shutdown(): Promise<void>;
+}
+
+/** The core's side of the protocol. */
 export class CoreEndpoint {
-  readonly connection: Connection;
+  constructor(readonly connection: Connection) {}
 
-  constructor(connection: Connection) {
-    this.connection = connection;
-  }
-
-  /** Registers the core's request handlers. Params are validated before a handler sees them. */
   handle(handlers: CoreHandlers): void {
-    for (const method of Object.keys(uiRequests) as (keyof UiRequests)[]) {
-      const { params: schema } = uiRequests[method];
-      const handler = handlers[method] as (params: unknown) => unknown;
-
-      this.connection.onRequest(method, (raw) => {
-        const params = parse(schema, raw, `${method} params`);
-        if (method === "initialize") {
-          const { protocolVersion } = params as UiRequests["initialize"]["params"];
-          if (protocolVersion !== PROTOCOL_VERSION) {
-            throw new RpcError(
-              ErrorCode.Rejected,
-              `protocol version mismatch: UI speaks ${protocolVersion}, core speaks ${PROTOCOL_VERSION}`,
-            );
-          }
-        }
-        return handler(params);
-      });
-    }
+    const c = this.connection;
+    c.on("initialize", (params) => {
+      const p = check(InitializeParams, params);
+      if (p.protocolVersion !== PROTOCOL_VERSION) {
+        throw new RpcError(`protocol version mismatch: UI ${p.protocolVersion}, core ${PROTOCOL_VERSION}`);
+      }
+      return handlers.initialize(p);
+    });
+    c.on("submit", (params) => handlers.submit(check(SubmitParams, params)));
+    c.on("abort", () => handlers.abort());
+    c.on("command", (params) => handlers.command(check(CommandParams, params)));
+    c.on("shutdown", () => handlers.shutdown());
   }
 
   event(event: CoreEvent): void {
-    this.connection.notify(EVENT_METHOD, event);
+    this.connection.notify("event", event);
   }
 
-  /** Asks the UI to approve a tool call. Aborting `signal` stops waiting; a late answer is dropped. */
-  async askPermission(
-    params: CoreRequests["permission"]["params"],
-    signal?: AbortSignal,
-  ): Promise<CoreRequests["permission"]["result"]> {
-    const result = await this.connection.request("permission", params, signal);
-    return parse(coreRequests.permission.result, result, "permission result");
+  async askPermission(params: PermissionParams, signal?: AbortSignal): Promise<PermissionResult> {
+    const answer = await this.connection.request("permission", params, signal);
+    return check(PermissionResult, answer);
   }
 
   onClose(listener: () => void): void {
@@ -83,70 +63,61 @@ export class CoreEndpoint {
   }
 }
 
+/** The UI's side of the protocol. */
 export class UiEndpoint {
-  readonly connection: Connection;
-  readonly #listeners = new Set<(event: CoreEvent) => void>();
+  constructor(readonly connection: Connection) {}
 
-  constructor(connection: Connection) {
-    this.connection = connection;
-    connection.onNotification(EVENT_METHOD, (raw) => {
-      // Unknown or malformed events are skipped, never fatal.
-      const event = parseEvent(raw);
-      if (!event) return;
-      for (const listener of this.#listeners) listener(event);
+  initialize(params: Omit<InitializeParams, "protocolVersion">): Promise<InitializeResult> {
+    return this.call("initialize", { ...params, protocolVersion: PROTOCOL_VERSION });
+  }
+
+  submit(text: string): Promise<void> {
+    return this.call("submit", { text });
+  }
+
+  abort(): Promise<void> {
+    return this.call("abort", {});
+  }
+
+  command(name: CommandParams["name"], arg?: string): Promise<CommandResult> {
+    return this.call("command", { name, arg });
+  }
+
+  shutdown(): Promise<void> {
+    return this.call("shutdown", {});
+  }
+
+  /** Events the UI does not know (from a newer core) are skipped. */
+  onEvent(listener: (event: CoreEvent) => void): void {
+    this.connection.on("event", (raw) => {
+      const result = CoreEvent.safeParse(raw);
+      if (result.success) listener(result.data);
     });
   }
 
-  async request<M extends keyof UiRequests>(
-    method: M,
-    params: UiRequests[M]["params"],
-  ): Promise<UiRequests[M]["result"]> {
-    const result = await this.connection.request(method, params);
-    return parse(uiRequests[method].result, result, `${method} result`) as UiRequests[M]["result"];
-  }
-
-  /** `initialize` with this package's protocol version filled in. */
-  initialize(
-    params: Omit<UiRequests["initialize"]["params"], "protocolVersion">,
-  ): Promise<UiRequests["initialize"]["result"]> {
-    return this.request("initialize", { ...params, protocolVersion: PROTOCOL_VERSION });
-  }
-
-  /** Returns an unsubscribe function. */
-  onEvent(listener: (event: CoreEvent) => void): () => void {
-    this.#listeners.add(listener);
-    return () => this.#listeners.delete(listener);
-  }
-
-  onPermission(
-    handler: (
-      params: CoreRequests["permission"]["params"],
-    ) => Awaitable<CoreRequests["permission"]["result"]>,
-  ): void {
-    this.connection.onRequest("permission", (raw) =>
-      handler(parse(coreRequests.permission.params, raw, "permission params")),
-    );
+  onPermission(handler: (params: PermissionParams) => PermissionResult | Promise<PermissionResult>): void {
+    this.connection.on("permission", (params) => handler(params as PermissionParams));
   }
 
   onClose(listener: () => void): void {
     this.connection.onClose(listener);
   }
+
+  private call<T>(method: string, params: unknown): Promise<T> {
+    return this.connection.request(method, params) as Promise<T>;
+  }
 }
 
-/**
- * Two connections wired to each other through in-memory streams. Tests use
- * it to run a real core against a scripted UI, over the same code path the
- * stdio pipes take.
- */
-export function memoryConnections(): { ui: Connection; core: Connection; close(): void } {
-  const uiToCore = new PassThrough();
-  const coreToUi = new PassThrough();
+/** Two connected endpoints over in-memory streams, for tests. */
+export function memoryConnections() {
+  const toCore = new PassThrough();
+  const toUi = new PassThrough();
   return {
-    ui: new Connection(coreToUi, uiToCore),
-    core: new Connection(uiToCore, coreToUi),
+    ui: new Connection(toUi, toCore),
+    core: new Connection(toCore, toUi),
     close() {
-      uiToCore.end();
-      coreToUi.end();
+      toCore.end();
+      toUi.end();
     },
   };
 }

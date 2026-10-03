@@ -1,296 +1,217 @@
 import { randomUUID } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
 import {
-  ErrorCode,
   PROTOCOL_VERSION,
   RpcError,
   type CommandParams,
+  type CommandResult,
   type CoreEndpoint,
   type InitializeParams,
   type InitializeResult,
   type PermissionMode,
+  type StopReason,
 } from "@mini-agent/coder-protocol";
 import type { ChatClient, Msg } from "@mini-agent/llm";
 import { Checkpoints } from "./checkpoints.js";
-import { alwaysKey, modeGate, type PermissionGate } from "./gate.js";
-import { DEFAULT_LIMITS, runLoop, type Authorization, type Limits } from "./loop.js";
+import { alwaysKey, checkPermission } from "./gate.js";
+import { DEFAULT_LIMITS, runLoop, type Limits } from "./loop.js";
 import { DEFAULT_MODEL, formatModel, parseModel, type ModelSpec } from "./model.js";
 import { buildSystemPrompt } from "./prompt.js";
 import type { Tool } from "./tool.js";
 
-export interface SessionDeps {
+export interface SessionOptions {
   tools: Tool[];
-  /** Builds the chat client for a model; `serve.ts` passes `chatModel` from `packages/llm`. */
   createModel(spec: ModelSpec): ChatClient;
-  /** `provider:model`, used when `initialize` names none. */
-  defaultModel?: string;
+  defaultModel?: string; // "provider:model"
   limits?: Partial<Limits>;
-  /** Called once `shutdown` has been answered, or the UI has gone away. */
+  /** Called once, after shutdown or when the UI goes away. */
   onShutdown?(): void;
-  /** Injected for tests. */
-  now?(): Date;
 }
 
-interface Ready {
-  sessionId: string;
+/** Set by `initialize`. */
+interface Setup {
   root: string;
   spec: ModelSpec;
   model: ChatClient;
   mode: PermissionMode;
-  gate: PermissionGate;
   system: string;
 }
 
-interface Turn {
-  controller: AbortController;
-  done: Promise<void>;
-}
-
 /**
- * The controller: answers the UI's requests, runs one turn at a time, and is
- * the only thing that talks to the endpoint. Everything it knows about the
- * conversation lives here, for this process's lifetime — persistence is the
- * memory layer's job (phase 7).
+ * The controller. Answers the UI's requests and runs one turn at a time.
+ * Everything here lives in memory for this process only.
  */
 export class Session {
-  readonly #endpoint: CoreEndpoint;
-  readonly #deps: SessionDeps;
-  readonly #limits: Limits;
-  readonly #history: Msg[] = [];
-  readonly #checkpoints = new Checkpoints();
-  readonly #reads = new Map<string, number>();
-  readonly #always = new Set<string>();
-  /** Notes for the model about things done outside the conversation (an undo). */
-  readonly #notes: string[] = [];
-  readonly #shell = { cwd: "" };
-  #ready?: Ready;
-  #turn?: Turn;
-  #callCount = 0;
-  #stopped = false;
-  #finished = false;
+  private setup?: Setup;
+  private turn?: { controller: AbortController; done: Promise<void> };
+  private history: Msg[] = [];
+  private checkpoints = new Checkpoints();
+  private reads = new Map<string, number>(); // file → mtime when read
+  private shell = { cwd: "" };
+  private alwaysAllowed = new Set<string>();
+  private callCount = 0;
+  private shuttingDown = false;
+  private limits: Limits;
 
-  constructor(endpoint: CoreEndpoint, deps: SessionDeps) {
-    this.#endpoint = endpoint;
-    this.#deps = deps;
-    this.#limits = { ...DEFAULT_LIMITS, ...deps.limits };
+  constructor(
+    private endpoint: CoreEndpoint,
+    private options: SessionOptions,
+  ) {
+    this.limits = { ...DEFAULT_LIMITS, ...options.limits };
 
     endpoint.handle({
-      initialize: (params) => this.#initialize(params),
-      submit: ({ text }) => this.#submit(text),
-      abort: () => {
-        this.#turn?.controller.abort(new Error("aborted by the user"));
-        return {};
-      },
-      command: (params) => this.#command(params),
-      shutdown: async () => {
-        await this.#stop();
-        // After the reply is on its way, not before it.
-        setImmediate(() => this.#finish());
-        return {};
-      },
+      initialize: (params) => this.initialize(params),
+      submit: ({ text }) => this.submit(text),
+      abort: () => this.turn?.controller.abort(new Error("aborted by the user")),
+      command: (params) => this.command(params),
+      shutdown: () => this.shutdown(),
     });
-
-    // The UI went away (closed our stdin, crashed): same as shutdown.
-    endpoint.onClose(() => {
-      void this.#stop().then(() => this.#finish());
-    });
+    endpoint.onClose(() => void this.shutdown()); // the UI went away
   }
 
-  /** Resolves when the running turn, if any, has finished. For tests and shutdown. */
+  /** Resolves when the running turn, if any, is over. */
   async idle(): Promise<void> {
-    await this.#turn?.done;
+    await this.turn?.done;
   }
 
-  /** Aborts the running turn (killing any command it started) and refuses new ones. */
-  stop(): Promise<void> {
-    return this.#stop();
+  /** Aborts the running turn and waits for it to end. */
+  async stop(): Promise<void> {
+    this.turn?.controller.abort(new Error("shutting down"));
+    await this.idle();
   }
 
-  async #initialize(params: InitializeParams): Promise<InitializeResult> {
-    if (this.#ready) throw new RpcError(ErrorCode.Rejected, "already initialized");
-    if (params.resume) throw new RpcError(ErrorCode.Rejected, "resuming a session is not supported yet");
+  private async initialize(params: InitializeParams): Promise<InitializeResult> {
+    if (this.setup) throw new RpcError("already initialized");
+    if (params.resume) throw new RpcError("resuming a session is not supported yet");
 
-    let root: string;
-    try {
-      root = await realpath(params.cwd);
-      if (!(await stat(root)).isDirectory()) throw new Error("not a directory");
-    } catch (err) {
-      throw new RpcError(ErrorCode.Rejected, `cannot use ${params.cwd} as the project root: ${(err as Error).message}`);
-    }
+    const root = await realpath(params.cwd).catch(() => "");
+    if (!root || !(await stat(root)).isDirectory()) throw new RpcError(`not a directory: ${params.cwd}`);
 
-    const spec = this.#parseModel(params.model ?? this.#deps.defaultModel ?? DEFAULT_MODEL);
+    const spec = this.parseModel(params.model ?? this.options.defaultModel ?? DEFAULT_MODEL);
     const mode = params.mode ?? "default";
-    const now = this.#deps.now?.() ?? new Date();
-
-    this.#shell.cwd = root;
-    this.#ready = {
-      sessionId: randomUUID(),
+    const system = buildSystemPrompt(this.options.tools, {
       root,
-      spec,
-      model: this.#deps.createModel(spec),
-      mode,
-      gate: modeGate(mode),
-      system: buildSystemPrompt(this.#deps.tools, {
-        root,
-        platform: process.platform,
-        date: now.toISOString().slice(0, 10),
-      }),
-    };
+      platform: process.platform,
+      date: new Date().toISOString().slice(0, 10),
+    });
 
-    return {
-      protocolVersion: PROTOCOL_VERSION,
-      sessionId: this.#ready.sessionId,
-      model: formatModel(spec),
-      mode,
-    };
+    this.setup = { root, spec, model: this.options.createModel(spec), mode, system };
+    this.shell.cwd = root;
+    return { protocolVersion: PROTOCOL_VERSION, sessionId: randomUUID(), model: formatModel(spec), mode };
   }
 
-  #submit(text: string): Record<string, never> {
-    const ready = this.#requireReady();
-    if (this.#turn) throw new RpcError(ErrorCode.Rejected, "a turn is already running");
-    if (this.#stopped) throw new RpcError(ErrorCode.Rejected, "the session is shutting down");
+  private submit(text: string): void {
+    if (!this.setup) throw new RpcError("initialize first");
+    if (this.turn) throw new RpcError("a turn is already running");
+    if (this.shuttingDown) throw new RpcError("shutting down");
 
     const controller = new AbortController();
-    const turn: Turn = { controller, done: Promise.resolve() };
-    this.#turn = turn;
-    turn.done = this.#runTurn(ready, text, controller.signal).finally(() => {
-      if (this.#turn === turn) this.#turn = undefined;
-    });
-    return {};
+    this.turn = { controller, done: this.runTurn(this.setup, text, controller.signal) };
   }
 
-  async #runTurn(ready: Ready, text: string, signal: AbortSignal): Promise<void> {
-    const notes = this.#notes.splice(0);
-    const content = notes.length ? `${notes.map((n) => `[note: ${n}]`).join("\n")}\n\n${text}` : text;
+  private async runTurn(setup: Setup, text: string, signal: AbortSignal): Promise<void> {
+    this.checkpoints.begin();
+    this.history.push({ role: "user", content: text });
+    this.endpoint.event({ type: "turn_start" });
 
-    this.#checkpoints.begin();
-    this.#history.push({ role: "user", content });
-    this.#endpoint.event({ type: "turn_start" });
-
-    let stopReason: Awaited<ReturnType<typeof runLoop>>["stopReason"] = "error";
+    let stopReason: StopReason;
     let error: string | undefined;
     try {
-      ({ stopReason } = await runLoop(this.#history, {
-        model: ready.model,
-        tools: this.#deps.tools,
-        system: ready.system,
-        limits: this.#limits,
+      stopReason = await runLoop(this.history, {
+        model: setup.model,
+        tools: this.options.tools,
+        system: setup.system,
+        limits: this.limits,
         signal,
-        emit: (event) => this.#endpoint.event(event),
-        authorize: (tool, input, callId) => this.#authorize(ready, tool, input, callId, signal),
-        nextCallId: () => `call_${++this.#callCount}`,
+        emit: (event) => this.endpoint.event(event),
+        authorize: (tool, input, callId) => this.authorize(setup, tool, input, callId, signal),
+        nextCallId: () => `call_${++this.callCount}`,
         context: {
-          root: ready.root,
-          reads: this.#reads,
-          shell: this.#shell,
-          checkpoint: (path) => this.#checkpoints.save(path),
+          root: setup.root,
+          reads: this.reads,
+          shell: this.shell,
+          checkpoint: (path) => this.checkpoints.save(path),
         },
-      }));
+      });
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      stopReason = "error";
+      error = (err as Error).message;
     }
 
-    // Free the session before announcing the end, so a UI that submits the
-    // moment it sees turn_end is not told a turn is still running.
-    this.#turn = undefined;
-    this.#endpoint.event({ type: "turn_end", stopReason, ...(error ? { error } : {}) });
+    // Free the session first, so the UI can submit as soon as it sees turn_end.
+    this.turn = undefined;
+    this.endpoint.event({ type: "turn_end", stopReason, error });
   }
 
-  async #authorize(
-    ready: Ready,
+  /** Returns why the call may not run, or null when it may. */
+  private async authorize(
+    setup: Setup,
     tool: Tool,
     input: unknown,
     callId: string,
     signal: AbortSignal,
-  ): Promise<Authorization> {
-    const key = alwaysKey(tool, input);
-    if (this.#always.has(key)) return { allowed: true };
+  ): Promise<string | null> {
+    if (this.alwaysAllowed.has(alwaysKey(tool, input))) return null;
 
-    const verdict = ready.gate.check(tool, input);
-    if (verdict.decision === "allow") return { allowed: true };
-    if (verdict.decision === "deny") return { allowed: false, reason: verdict.reason };
+    const verdict = checkPermission(setup.mode, tool);
+    if (verdict.decision === "allow") return null;
+    if (verdict.decision === "deny") return verdict.reason;
 
     try {
-      const { decision } = await this.#endpoint.askPermission(
+      const { decision } = await this.endpoint.askPermission(
         { callId, tool: tool.name, input, reason: verdict.reason },
         signal,
       );
-      if (decision === "deny") return { allowed: false, reason: "the user denied this call" };
-      if (decision === "always") this.#always.add(key);
-      return { allowed: true };
+      if (decision === "deny") return "the user denied this call";
+      if (decision === "always") this.alwaysAllowed.add(alwaysKey(tool, input));
+      return null;
     } catch (err) {
-      // Aborted while waiting, or the UI is gone: a question nobody answered is a no.
-      return {
-        allowed: false,
-        reason: signal.aborted ? "the user aborted the turn" : `no answer: ${(err as Error).message}`,
-      };
+      return signal.aborted ? "the user aborted the turn" : `no answer: ${(err as Error).message}`;
     }
   }
 
-  async #command({ name, arg }: CommandParams): Promise<{ message: string }> {
-    const ready = this.#requireReady();
-    if (this.#turn) throw new RpcError(ErrorCode.Rejected, `/${name} cannot run during a turn`);
+  private async command({ name, arg }: CommandParams): Promise<CommandResult> {
+    if (!this.setup) throw new RpcError("initialize first");
+    if (this.turn) throw new RpcError(`/${name} cannot run during a turn`);
 
-    switch (name) {
-      case "clear":
-        this.#history.length = 0;
-        this.#reads.clear();
-        this.#notes.length = 0;
-        return { message: "conversation cleared" };
-
-      case "undo": {
-        const paths = await this.#checkpoints.undo();
-        if (!paths.length) return { message: "nothing to undo" };
-        // The files changed under the model: make it re-read before editing.
-        for (const path of paths) this.#reads.delete(path);
-        const list = paths.map((path) => this.#relative(ready, path)).join(", ");
-        this.#notes.push(`the user undid your last file changes: ${list}. Re-read before editing them.`);
-        return {
-          message: `restored ${paths.length} file${paths.length === 1 ? "" : "s"}: ${list}. Changes made through bash are not undone.`,
-        };
-      }
-
-      case "model": {
-        if (!arg) return { message: `model: ${formatModel(ready.spec)}` };
-        const spec = this.#parseModel(arg);
-        ready.spec = spec;
-        ready.model = this.#deps.createModel(spec);
-        return { message: `model set to ${formatModel(spec)}` };
-      }
-
-      case "compact":
-        return { message: "compaction is not available yet" };
+    if (name === "clear") {
+      this.history = [];
+      this.reads.clear();
+      return { message: "conversation cleared" };
     }
+
+    if (name === "undo") {
+      const paths = await this.checkpoints.undo();
+      if (paths.length === 0) return { message: "nothing to undo" };
+      // The files changed: make the model read them again before editing.
+      for (const path of paths) this.reads.delete(path);
+      const list = paths.map((p) => p.replace(this.setup!.root + "/", "")).join(", ");
+      return { message: `restored ${list}. Changes made through bash are not undone.` };
+    }
+
+    if (name === "model") {
+      if (!arg) return { message: `model: ${formatModel(this.setup.spec)}` };
+      this.setup.spec = this.parseModel(arg);
+      this.setup.model = this.options.createModel(this.setup.spec);
+      return { message: `model set to ${arg}` };
+    }
+
+    return { message: "compaction is not available yet" };
   }
 
-  async #stop(): Promise<void> {
-    if (this.#stopped) return;
-    this.#stopped = true;
-    this.#turn?.controller.abort(new Error("shutting down"));
-    await this.idle();
+  private async shutdown(): Promise<void> {
+    if (this.shuttingDown) return;
+    this.shuttingDown = true;
+    await this.stop();
+    // Exit on the next tick, so the reply to `shutdown` is sent first.
+    setImmediate(() => this.options.onShutdown?.());
   }
 
-  /** `shutdown` followed by the pipe closing must not exit twice. */
-  #finish(): void {
-    if (this.#finished) return;
-    this.#finished = true;
-    this.#deps.onShutdown?.();
-  }
-
-  #requireReady(): Ready {
-    if (!this.#ready) throw new RpcError(ErrorCode.Rejected, "initialize first");
-    return this.#ready;
-  }
-
-  #parseModel(spec: string): ModelSpec {
+  private parseModel(spec: string): ModelSpec {
     try {
       return parseModel(spec);
     } catch (err) {
-      throw new RpcError(ErrorCode.InvalidParams, (err as Error).message);
+      throw new RpcError((err as Error).message, -32602);
     }
-  }
-
-  #relative(ready: Ready, path: string): string {
-    return path.startsWith(`${ready.root}/`) ? path.slice(ready.root.length + 1) : path;
   }
 }

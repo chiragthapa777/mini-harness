@@ -31,7 +31,7 @@ test("cd persists between calls, and cannot leave the project", async () => {
   assert.equal(await bashTool.run({ command: "pwd" }, ctx), `${join(root, "pkg")}\n`);
 
   const out = await bashTool.run({ command: "cd /tmp" }, ctx);
-  assert.match(out, /working directory left the project; it was reset/);
+  assert.match(out, /working directory left the project and was reset/);
   assert.equal(ctx.shell.cwd, root);
 });
 
@@ -44,7 +44,7 @@ test("a timeout kills the whole process group", async () => {
   // and holding the pipes open.
   await assert.rejects(
     bashTool.run({ command: "echo start; (sleep 30); echo never", timeout: 1_000 }, ctx),
-    /start\n\n\[timed out after 1s; the command was killed\]/,
+    /start\n\n\[timed out after 1s and was killed\]/,
   );
   assert.ok(Date.now() - started < 5_000, "returned promptly");
 });

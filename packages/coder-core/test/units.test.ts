@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { Checkpoints } from "../src/checkpoints.js";
-import { alwaysKey, modeGate } from "../src/gate.js";
+import { alwaysKey, checkPermission } from "../src/gate.js";
 import { capOutput } from "../src/loop.js";
 import { formatModel, parseModel } from "../src/model.js";
 import { buildSystemPrompt } from "../src/prompt.js";
@@ -12,7 +12,7 @@ import { echoTool, tempProject } from "./helpers.js";
 
 const tool = (kind: ToolKind): Tool => ({ ...echoTool, name: kind, kind });
 
-test("the stub gate decides by tool kind and mode", () => {
+test("the gate decides by tool kind and mode", () => {
   const table: [string, ToolKind, string][] = [
     ["default", "read", "allow"],
     ["default", "write", "ask"],
@@ -29,7 +29,7 @@ test("the stub gate decides by tool kind and mode", () => {
   ];
 
   for (const [mode, kind, expected] of table) {
-    const verdict = modeGate(mode as never).check(tool(kind), {});
+    const verdict = checkPermission(mode as never, tool(kind));
     assert.equal(verdict.decision, expected, `${mode} / ${kind}`);
   }
 });

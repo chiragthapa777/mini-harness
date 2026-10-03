@@ -3,7 +3,7 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { PathError, display, resolveInProject } from "../src/paths.js";
+import { display, resolveInProject } from "../src/paths.js";
 import { tempProject } from "./helpers.js";
 
 test("relative and absolute paths inside the project resolve", async () => {
@@ -21,7 +21,7 @@ test("relative and absolute paths inside the project resolve", async () => {
 test("anything outside the project is refused", async () => {
   const root = await tempProject();
   for (const path of ["../outside.txt", "/etc/passwd", join(root, "..")]) {
-    await assert.rejects(resolveInProject(root, path), PathError, path);
+    await assert.rejects(resolveInProject(root, path), /outside the project/, path);
   }
 });
 

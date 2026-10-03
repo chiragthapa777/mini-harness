@@ -101,12 +101,10 @@ export const editFileTool: Tool<typeof editSchema> = {
       );
     }
 
-    // Plain slicing, not String.replace: `$&` and friends in new_string are literal text.
+    // A function as the replacement keeps `$&` and `$1` in new_string literal.
     const updated = replace_all
       ? content.split(old_string).join(new_string)
-      : content.slice(0, content.indexOf(old_string)) +
-        new_string +
-        content.slice(content.indexOf(old_string) + old_string.length);
+      : content.replace(old_string, () => new_string);
 
     await ctx.checkpoint(real);
     await writeFile(real, updated);

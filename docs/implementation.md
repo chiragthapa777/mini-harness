@@ -376,50 +376,37 @@ per-case and a long-lived server never needs a restart to pick up a changed var.
 The local coding agent. Design in [`mini-coder-architecture.md`](mini-coder-architecture.md);
 none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
 
-- **`packages/coder-protocol`** — the UI ↔ core contract. `messages.ts` holds every
-  message as a zod schema: the five UI → core requests (`initialize`, `submit`,
-  `abort`, `command`, `shutdown`), the core → UI `permission` request, the `event`
-  notification and its `CoreEvent` union, and `PROTOCOL_VERSION`. `connection.ts` is
-  JSON-RPC 2.0 over newline-delimited JSON, symmetric (either side requests); an
-  aborted request is forgotten so a late answer is dropped, and closing the stream
-  rejects everything pending. `endpoints.ts` puts the typed API on top —
-  `CoreEndpoint` (validates incoming params, refuses a mismatched protocol version on
-  `initialize`) and `UiEndpoint` (validates results, skips unknown or malformed
-  events). `memoryConnections()` wires both ends over in-memory streams for tests.
-- **`packages/coder-core`** — the controller and the loop, UI-agnostic.
-  - `session.ts` — `Session` answers the protocol requests and runs one turn at a time
-    (`submit` during a turn is rejected; the UI queues). `initialize` realpaths the
-    project root and snapshots the system prompt once. Commands: `/clear`, `/undo`
-    (restores the last turn's files, then prefixes the next user message with a note so
-    the model re-reads them), `/model` (report or switch), `/compact` (not yet). Esc
-    (`abort`) and `shutdown` fire the turn's `AbortController`; the UI's pipe closing
-    counts as shutdown, and `onShutdown` fires exactly once.
-  - `loop.ts` — `runLoop`: stream the model, hide `tool_call` fences from `text_delta`,
-    run each call (unknown tool / bad input / unparseable block → error result, not an
-    exception), append results as the next user turn, repeat until a reply has no calls.
-    Guardrails: 100 iterations and a 2M-token budget per turn; tool output capped at 30k
-    chars (head + tail). An abort keeps the text already shown in history, marked
-    `[interrupted by the user]`.
-  - `gate.ts` — the phase 2 stub gate: reads allow; writes and exec ask
+- **`packages/coder-protocol`** — the UI ↔ core contract. `messages.ts`: every
+  message (zod schemas for what gets validated, plain types for the rest) and
+  `PROTOCOL_VERSION`. `connection.ts`: JSON-RPC 2.0, one JSON object per line, either
+  side can send requests; an aborted request stops waiting, closing rejects what is
+  pending. `endpoints.ts`: `CoreEndpoint` (validates the UI's params, refuses another
+  protocol version) and `UiEndpoint` (`initialize`, `submit`, `abort`, `command`,
+  `shutdown`; skips unknown events). `memoryConnections()` for tests.
+- **`packages/coder-core`** — the controller and the loop, no UI code.
+  - `session.ts` — `Session` answers the UI and runs one turn at a time. Commands:
+    `/clear`, `/undo` (restores the last turn's files; the model must re-read them),
+    `/model`; `/compact` not yet. `abort` and `shutdown` abort the turn; the UI's pipe
+    closing counts as shutdown; `onShutdown` is called once.
+  - `loop.ts` — `runLoop`: stream the reply (tool_call blocks hidden from the screen),
+    run each call (bad calls become error results), add results to the history, repeat
+    until a reply has no calls. Limits: 100 model calls and 2M tokens per turn; tool
+    output capped at 30k chars. On abort the shown text is kept, marked interrupted.
+  - `gate.ts` — `checkPermission(mode, tool)`: reads allowed; writes and commands ask
     (`accept-edits` allows writes, `plan` denies both, `bypass` allows all). "always"
-    trusts a file tool for the session, but a command only verbatim.
-  - `checkpoints.ts` — per-turn snapshots (first version of each file; files that did not
-    exist are removed on undo). `prompt.ts` — rules → tool catalog → environment.
-    `model.ts` — `provider:model` strings, default `openrouter:z-ai/glm-5.3-flash`.
-- **`packages/coder-tools`** — `read_file` (numbered lines, offset/limit, refuses
-  binaries, records mtime), `edit_file` (needs a prior read and an unchanged mtime,
-  exact unique match or `replace_all`, checkpoints first, `$` patterns literal), `bash`
-  (`bash -c` in its own process group; timeout and abort kill the group; cwd carried
-  between calls via fd 3 and reset if it leaves the project; stdin closed; a background
-  `&` process does not hold the call open). `paths.ts` is the guard: realpath (symlinks
-  included, even for files not yet created), inside the project root, and never `.env*`
-  (bar `.env.example`), `~/.ssh`, `~/.mini-coder` or `.mini-coder/settings*.json`.
-- **`apps/coder`** — `src/serve.ts` is the composition root (the only file that wires
-  core + tools + `llm`); `mini-coder serve` runs it on stdin/stdout. Logging is moved
-  to stderr so stdout stays protocol-only, SIGINT is ignored (Ctrl+C is the UI's call),
-  SIGTERM stops the turn and exits. `src/main.ts` only knows `serve` so far — the UI,
-  `-p` and the bundle are phase 3. `test/serve.test.ts` spawns the real process against
-  a local fake of OpenRouter's streaming API and runs a full turn with a bash call.
+    covers a file tool as a whole, a command only verbatim.
+  - `checkpoints.ts` (per-turn file snapshots for `/undo`), `prompt.ts` (rules → tools →
+    environment), `model.ts` (`provider:model`, default `openrouter:z-ai/glm-5.3-flash`).
+- **`packages/coder-tools`** — `read_file` (numbered lines, offset/limit, no binaries,
+  remembers the mtime), `edit_file` (needs a prior read and an unchanged file, an exact
+  unique match or `replace_all`, checkpoints first), `bash` (own process group killed
+  on timeout or Esc, `cd` carried over via file descriptor 3, stdin closed, background
+  jobs do not hang it). `paths.ts`: realpath, inside the project, never `.env*` (except
+  `.env.example`), `~/.ssh`, `~/.mini-coder` or `.mini-coder/settings*.json`.
+- **`apps/coder`** — `src/serve.ts` wires core + tools + `llm` (the only place they
+  meet); `mini-coder serve` runs it on stdin/stdout, logs to stderr, ignores SIGINT
+  (Ctrl+C is the UI's call). `src/main.ts` knows only `serve` until phase 3.
+  `test/serve.test.ts` runs the real process against a local fake of OpenRouter.
 
 ---
 

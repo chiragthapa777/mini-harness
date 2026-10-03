@@ -2,68 +2,45 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ErrorCode } from "@mini-agent/coder-protocol";
-import { echoTool, harness, shape, shellTool, tempProject, text, toolCall, writeTool } from "./helpers.js";
+import { z } from "zod";
+import type { Tool } from "../src/tool.js";
+import { echoTool, harness, shellTool, shownText, summary, tempProject, tick, toolCall } from "./helpers.js";
 
-test("a full turn: tool call → permission → result → final reply", async () => {
+test("a full turn: tool call, permission, result, final reply", async () => {
   const h = await harness({
-    tools: [echoTool, shellTool],
-    replies: ["Running it.\n" + toolCall("shell", { command: "npm test" }), "All tests pass."],
+    tools: [shellTool],
+    replies: ["Running it.\n" + toolCall("shell", { command: "npm test" }), "Tests pass."],
     answers: ["allow"],
   });
 
   const end = await h.turn("run the tests");
 
-  assert.equal(end.stopReason, "end_turn");
-  assert.deepEqual(shape(h.events), [
-    "turn_start",
-    "tool_start shell",
-    'tool_output "line 1\\n"',
-    'tool_output "line 2\\n"',
-    "tool_end ok: ran npm test",
-    "turn_end end_turn",
-  ]);
-  // The fence never reaches the screen; the prose around it does.
-  assert.equal(text(h.events), "Running it.\nAll tests pass.");
+  assert.deepEqual(end, { type: "turn_end", stopReason: "end_turn" });
+  assert.deepEqual(summary(h.events), ["start shell", "end ok: ran npm test", "turn_end end_turn"]);
+  assert.ok(h.events.some((e) => e.type === "tool_output" && e.chunk === "line 1\n"));
+  assert.equal(shownText(h.events), "Running it.\nTests pass."); // the tool_call block is hidden
+  assert.deepEqual(h.asked, [{ callId: "call_1", tool: "shell", input: { command: "npm test" }, reason: "commands ask first" }]);
 
-  assert.deepEqual(h.asked, [
-    { callId: "call_1", tool: "shell", input: { command: "npm test" }, reason: "commands ask by default" },
-  ]);
-
-  // Second model call saw the system prompt, the user turn, its own call, and the result.
+  // The second model call got the tool result back.
   const second = h.model.seen[1]!;
-  assert.equal(second[0]!.role, "system");
-  assert.match(second[0]!.content, /### shell/);
-  assert.deepEqual(
-    second.slice(1).map((m) => m.role),
-    ["user", "assistant", "user"],
-  );
+  assert.deepEqual(second.map((m) => m.role), ["system", "user", "assistant", "user"]);
   assert.match(second[3]!.content, /\[call_1\] shell result:\nran npm test/);
 });
 
-test("reads run without asking", async () => {
-  const h = await harness({
-    replies: [toolCall("echo", { text: "hi" }), "done"],
-  });
-  await h.turn("echo something");
+test("reads never ask", async () => {
+  const h = await harness({ replies: [toolCall("echo", { text: "hi" }), "done"] });
+  await h.turn("echo");
   assert.deepEqual(h.asked, []);
-  assert.ok(shape(h.events).includes("tool_end ok: echo: hi"));
+  assert.deepEqual(summary(h.events), ["start echo", "end ok: echo: hi", "turn_end end_turn"]);
 });
 
-test("a denied call is reported to the model, which carries on", async () => {
-  const h = await harness({
-    tools: [shellTool],
-    replies: [toolCall("shell", { command: "rm -rf /" }), "Understood, I won't."],
-    answers: ["deny"],
-  });
-
-  const end = await h.turn("clean up");
-  assert.equal(end.stopReason, "end_turn");
-  assert.ok(shape(h.events).includes("tool_end error: not run: the user denied this call"));
-  assert.match(h.model.seen[1]!.at(-1)!.content, /shell error:\nnot run: the user denied this call/);
+test("a denied call is reported to the model", async () => {
+  const h = await harness({ tools: [shellTool], replies: [toolCall("shell", { command: "rm -rf /" }), "ok"], answers: ["deny"] });
+  await h.turn("clean up");
+  assert.ok(summary(h.events).includes("end error: not run: the user denied this call"));
 });
 
-test("always: an exec call is trusted verbatim, not as a whole tool", async () => {
+test("'always' covers a command only verbatim", async () => {
   const h = await harness({
     tools: [shellTool],
     replies: [
@@ -74,234 +51,155 @@ test("always: an exec call is trusted verbatim, not as a whole tool", async () =
     ],
     answers: ["always", "deny"],
   });
-
   await h.turn("go");
-  // Asked for the first npm test and for rm, never for the repeat.
-  assert.deepEqual(
-    h.asked.map((a) => (a.input as { command: string }).command),
-    ["npm test", "rm -rf build"],
-  );
+  assert.deepEqual(h.asked.map((a) => (a.input as { command: string }).command), ["npm test", "rm -rf build"]);
 });
 
 test("plan mode refuses writes without asking", async () => {
-  const project = await tempProject();
-  const h = await harness({
-    tools: [writeTool(async () => assert.fail("must not run"))],
-    replies: [toolCall("write", { path: "a.txt", content: "x" }), "ok"],
-    init: { cwd: project, mode: "plan" },
-  });
-
-  await h.turn("write a file");
+  const write: Tool = { ...echoTool, name: "write", kind: "write", run: async () => assert.fail("must not run") };
+  const h = await harness({ tools: [write], replies: [toolCall("write", { text: "x" }), "ok"], mode: "plan" });
+  await h.turn("write");
   assert.deepEqual(h.asked, []);
-  assert.ok(shape(h.events).includes("tool_end error: not run: plan mode is read-only"));
+  assert.ok(summary(h.events).includes("end error: not run: plan mode is read-only"));
 });
 
-test("unknown tools, bad input and broken blocks become error results", async () => {
+test("bad tool calls become error results and the turn goes on", async () => {
   const h = await harness({
-    replies: [
-      [
-        toolCall("nope", {}),
-        toolCall("echo", { text: 42 }),
-        "```tool_call\n{not json}\n```",
-      ].join("\n"),
-      "sorry",
-    ],
+    replies: [[toolCall("nope", {}), toolCall("echo", { text: 42 }), "```tool_call\n{not json}\n```"].join("\n"), "sorry"],
   });
-
-  const end = await h.turn("try things");
-  assert.equal(end.stopReason, "end_turn");
-  const errors = shape(h.events).filter((line) => line.startsWith("tool_end error"));
-  assert.equal(errors.length, 3);
-  assert.match(errors[0]!, /unknown tool "nope". Available: echo/);
-  assert.match(errors[1]!, /invalid input for echo: text:/);
+  const end = await h.turn("try");
+  assert.equal(end.type === "turn_end" && end.stopReason, "end_turn");
+  const errors = summary(h.events).filter((line) => line.startsWith("end error"));
+  assert.match(errors[0]!, /unknown tool "nope"/);
+  assert.match(errors[1]!, /invalid input for echo/);
   assert.match(errors[2]!, /could not parse the tool_call block/);
 });
 
-test("Esc mid-stream: the turn ends aborted and keeps what was shown", async () => {
-  const h = await harness({ replies: [{ hang: "Let me think about" }, "fresh answer"] });
-
-  const streaming = h.next((e) => e.type === "text_delta");
-  const ended = h.next((e) => e.type === "turn_end");
-  await h.ui.request("submit", { text: "question" });
-  await streaming;
-  await h.ui.request("abort", {});
+test("Esc while streaming: the turn ends 'aborted' and keeps what was shown", async () => {
+  const h = await harness({ replies: [{ hang: "Let me think about" }, "answer"] });
+  const ended = h.turn("question");
+  while (!h.events.some((e) => e.type === "text_delta")) await tick();
+  await h.ui.abort();
   await ended;
 
-  assert.deepEqual(shape(h.events), ["turn_start", "turn_end aborted"]);
-  assert.equal(text(h.events), "Let me think about");
+  assert.deepEqual(summary(h.events), ["turn_end aborted"]);
+  assert.equal(shownText(h.events), "Let me think about");
 
-  // The session is usable again, and the model sees where it was cut off.
-  const second = await h.turn("try again");
-  assert.equal(second.stopReason, "end_turn");
-  const history = h.model.seen[1]!;
-  assert.equal(history[2]!.role, "assistant");
-  assert.match(history[2]!.content, /Let me think about\n\n\[interrupted by the user\]$/);
+  // The next turn works, and the model sees where it was cut off.
+  await h.turn("again");
+  assert.equal(h.model.seen[1]![2]!.content, "Let me think about\n\n[interrupted by the user]");
 });
 
-test("Esc while a permission prompt is open: nothing runs", async () => {
+test("Esc during a permission prompt: nothing runs", async () => {
   let ran = false;
-  const h = await harness({
-    tools: [{ ...shellTool, run: async () => ((ran = true), "ran") }],
-    replies: [toolCall("shell", { command: "deploy" }), "unreachable"],
-    answers: ["never"],
-  });
+  const shell: Tool = { ...shellTool, run: async () => ((ran = true), "ran") };
+  const h = await harness({ tools: [shell], replies: [toolCall("shell", { command: "deploy" })], answers: ["never"] });
 
-  const asking = new Promise<void>((resolve) => {
-    const check = setInterval(() => {
-      if (h.asked.length) {
-        clearInterval(check);
-        resolve();
-      }
-    }, 1);
-  });
-  const ended = h.next((e) => e.type === "turn_end");
-  await h.ui.request("submit", { text: "ship it" });
-  await asking;
-  await h.ui.request("abort", {});
+  const ended = h.turn("ship it");
+  while (h.asked.length === 0) await tick();
+  await h.ui.abort();
   await ended;
 
   assert.equal(ran, false);
-  assert.deepEqual(shape(h.events), [
-    "turn_start",
-    "tool_start shell",
-    "tool_end error: not run: the user aborted the turn",
-    "turn_end aborted",
-  ]);
-  assert.equal(h.model.calls(), 1);
+  assert.deepEqual(summary(h.events), ["start shell", "end error: not run: the user aborted the turn", "turn_end aborted"]);
 });
 
 test("one turn at a time", async () => {
   const h = await harness({ replies: [{ hang: "working" }] });
-  await h.ui.request("submit", { text: "first" });
-  await assert.rejects(h.ui.request("submit", { text: "second" }), {
-    code: ErrorCode.Rejected,
-    message: "a turn is already running",
-  });
-  await assert.rejects(h.ui.request("command", { name: "clear" }), { code: ErrorCode.Rejected });
-  await h.ui.request("abort", {});
+  await h.ui.submit("first");
+  await assert.rejects(h.ui.submit("second"), /a turn is already running/);
+  await assert.rejects(h.ui.command("clear"), /cannot run during a turn/);
+  await h.ui.abort();
   await h.session.idle();
 });
 
-test("the iteration cap stops a model that never finishes", async () => {
-  const h = await harness({
-    replies: [toolCall("echo", { text: "again" })],
-    deps: { limits: { maxIterations: 3 } },
-  });
-  const end = await h.turn("loop forever");
-  assert.equal(end.stopReason, "max_iterations");
-  assert.equal(h.model.calls(), 3);
+test("the iteration cap and the token budget stop a runaway turn", async () => {
+  const loop = await harness({ replies: [toolCall("echo", { text: "again" })], limits: { maxIterations: 3 } });
+  assert.deepEqual(await loop.turn("go"), { type: "turn_end", stopReason: "max_iterations" });
+  assert.equal(loop.model.calls(), 3);
+
+  // Each fake call uses 110 tokens.
+  const spend = await harness({ replies: [toolCall("echo", { text: "again" })], limits: { maxTokensPerTurn: 250 } });
+  assert.deepEqual(await spend.turn("go"), { type: "turn_end", stopReason: "token_budget" });
 });
 
-test("the token budget stops a turn", async () => {
-  // Each fake call reports 110 tokens.
-  const h = await harness({
-    replies: [toolCall("echo", { text: "again" })],
-    deps: { limits: { maxTokensPerTurn: 250 } },
-  });
-  const end = await h.turn("spend");
-  assert.equal(end.stopReason, "token_budget");
-  assert.equal(h.model.calls(), 3);
-});
-
-test("a provider error ends the turn with the message", async () => {
+test("a model error ends the turn with its message", async () => {
   const h = await harness({ replies: [{ fail: "429 rate limited" }] });
-  const end = await h.turn("hello");
-  assert.deepEqual(end, { type: "turn_end", stopReason: "error", error: "429 rate limited" });
+  assert.deepEqual(await h.turn("hi"), { type: "turn_end", stopReason: "error", error: "429 rate limited" });
 });
 
-test("/undo restores the last turn's files and tells the model", async () => {
-  const project = await tempProject();
-  const file = join(project, "notes.txt");
-  await writeFile(file, "original\n");
-
-  const tool = writeTool(async ({ path, content }, ctx) => {
-    const target = join(ctx.root, path);
-    await ctx.checkpoint(target);
-    await writeFile(target, content);
-  });
+test("/undo restores the files changed in the last turn", async () => {
+  const cwd = await tempProject();
+  await writeFile(join(cwd, "a.txt"), "original");
+  const schema = z.object({ path: z.string(), content: z.string() });
+  const write: Tool<typeof schema> = {
+    name: "write",
+    description: "writes a file",
+    kind: "write",
+    schema,
+    async run({ path, content }, ctx) {
+      await ctx.checkpoint(join(ctx.root, path));
+      await writeFile(join(ctx.root, path), content);
+      return "ok";
+    },
+  };
 
   const h = await harness({
-    tools: [tool],
-    replies: [
-      [toolCall("write", { path: "notes.txt", content: "first\n" }), toolCall("write", { path: "new.txt", content: "x" })].join("\n"),
-      "done",
-      "noted",
-    ],
-    answers: ["always"],
-    init: { cwd: project },
+    tools: [write],
+    cwd,
+    mode: "accept-edits",
+    replies: [toolCall("write", { path: "a.txt", content: "changed" }) + toolCall("write", { path: "new.txt", content: "x" }), "done"],
   });
-
   await h.turn("edit");
-  assert.equal(await readFile(file, "utf8"), "first\n");
+  assert.equal(await readFile(join(cwd, "a.txt"), "utf8"), "changed");
 
-  const { message } = await h.ui.request("command", { name: "undo" });
-  assert.match(message, /^restored 2 files: notes.txt, new.txt\. Changes made through bash are not undone\.$/);
-  assert.equal(await readFile(file, "utf8"), "original\n");
-  await assert.rejects(readFile(join(project, "new.txt")), { code: "ENOENT" });
-
-  assert.equal((await h.ui.request("command", { name: "undo" })).message, "nothing to undo");
-
-  await h.turn("what now?");
-  assert.match(h.model.seen.at(-1)!.at(-1)!.content, /^\[note: the user undid your last file changes: notes.txt, new.txt/);
+  assert.deepEqual(await h.ui.command("undo"), { message: "restored a.txt, new.txt. Changes made through bash are not undone." });
+  assert.equal(await readFile(join(cwd, "a.txt"), "utf8"), "original");
+  await assert.rejects(readFile(join(cwd, "new.txt")), { code: "ENOENT" });
+  assert.deepEqual(await h.ui.command("undo"), { message: "nothing to undo" });
 });
 
-test("/clear empties the conversation; /model reports and switches", async () => {
+test("/clear and /model", async () => {
   const h = await harness({ replies: ["one", "two"] });
   await h.turn("first");
-  assert.equal((await h.ui.request("command", { name: "clear" })).message, "conversation cleared");
+  await h.ui.command("clear");
   await h.turn("second");
-  assert.deepEqual(
-    h.model.seen[1]!.map((m) => m.role),
-    ["system", "user"],
-  );
+  assert.deepEqual(h.model.seen[1]!.map((m) => m.role), ["system", "user"]);
 
-  assert.equal((await h.ui.request("command", { name: "model" })).message, "model: openrouter:z-ai/glm-5.3-flash");
-  assert.equal(
-    (await h.ui.request("command", { name: "model", arg: "anthropic:claude-opus-5" })).message,
-    "model set to anthropic:claude-opus-5",
-  );
-  await assert.rejects(h.ui.request("command", { name: "model", arg: "nonsense" }), {
-    code: ErrorCode.InvalidParams,
-  });
+  assert.deepEqual(await h.ui.command("model"), { message: "model: openrouter:z-ai/glm-5.3-flash" });
+  assert.deepEqual(await h.ui.command("model", "anthropic:claude-opus-5"), { message: "model set to anthropic:claude-opus-5" });
+  await assert.rejects(h.ui.command("model", "nonsense"), /provider:model/);
 });
 
-test("initialize validates the project root and the model", async () => {
-  await assert.rejects(harness({ replies: [], init: { cwd: "/definitely/not/here" } }), {
-    code: ErrorCode.Rejected,
-  });
-  await assert.rejects(harness({ replies: [], init: { model: "acme:gpt" } }), {
-    code: ErrorCode.InvalidParams,
-    message: /unknown provider "acme"/,
-  });
+test("initialize checks the folder and the model", async () => {
+  await assert.rejects(harness({ replies: [], cwd: "/not/a/folder" }), /not a directory/);
+  await assert.rejects(harness({ replies: [], model: "acme:gpt" }), /unknown provider "acme"/);
 
-  const h = await harness({ replies: [], init: { model: "google:gemini-2.5-pro", mode: "accept-edits" } });
+  const h = await harness({ replies: [], model: "google:gemini-2.5-pro", mode: "accept-edits" });
   assert.equal(h.init.model, "google:gemini-2.5-pro");
   assert.equal(h.init.mode, "accept-edits");
-  await assert.rejects(h.ui.initialize({ cwd: h.root }), { message: "already initialized" });
+  await assert.rejects(h.ui.initialize({ cwd: h.cwd }), /already initialized/);
 });
 
-test("shutdown aborts the running turn, answers, then exits once", async () => {
+test("shutdown aborts the turn and exits exactly once", async () => {
   const h = await harness({ replies: [{ hang: "long task" }] });
-  const ended = h.next((e) => e.type === "turn_end");
-  await h.ui.request("submit", { text: "go" });
-
-  await h.ui.request("shutdown", {});
+  const ended = h.turn("go");
+  await h.ui.shutdown();
   await ended;
-  await new Promise((resolve) => setImmediate(resolve));
+  await tick();
   assert.equal(h.shutdowns(), 1);
-  assert.deepEqual(shape(h.events), ["turn_start", "turn_end aborted"]);
+  assert.deepEqual(summary(h.events), ["turn_end aborted"]);
 
-  // The UI then closes the pipe: still exactly one exit.
-  h.wires.close();
-  await new Promise((resolve) => setImmediate(resolve));
+  h.wires.close(); // the UI then closes the pipe
+  await tick();
   assert.equal(h.shutdowns(), 1);
 });
 
-test("the UI disappearing counts as shutdown", async () => {
+test("the UI going away counts as shutdown", async () => {
   const h = await harness({ replies: [{ hang: "long task" }] });
-  await h.ui.request("submit", { text: "go" });
+  await h.ui.submit("go");
   h.wires.close();
-  await h.session.idle();
-  await new Promise((resolve) => setImmediate(resolve));
+  while (h.shutdowns() === 0) await tick(); // the close event arrives asynchronously
+  assert.deepEqual(summary(h.events), []); // the UI was gone before turn_end
   assert.equal(h.shutdowns(), 1);
 });

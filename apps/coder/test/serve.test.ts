@@ -102,7 +102,7 @@ test("a turn through the real process: model → bash → permission → reply �
     const init = await within(core.ui.initialize({ cwd: project }), 15_000, "initialize");
     assert.equal(init.model, "openrouter:z-ai/glm-5.3-flash");
 
-    await core.ui.request("submit", { text: "run echo" });
+    await core.ui.submit("run echo");
     await within(ended, 15_000, "the turn");
 
     assert.deepEqual(
@@ -124,7 +124,7 @@ test("a turn through the real process: model → bash → permission → reply �
     // The second model call carried the tool result back.
     assert.match(model.bodies[1]!.messages.at(-1)!.content, /\[call_1\] bash result:\nfrom-bash/);
 
-    await core.ui.request("shutdown", {});
+    await core.ui.shutdown();
     assert.equal(await within(core.exited, 10_000, "exit"), 0);
 
     // stdout carried protocol messages and nothing else.
@@ -151,9 +151,9 @@ test("Ctrl+C (SIGINT) does not kill the core; the UI decides", async () => {
   try {
     await within(core.ui.initialize({ cwd: tmpdir() }), 15_000, "initialize");
     core.child.kill("SIGINT");
-    const reply = await within(core.ui.request("command", { name: "model" }), 5_000, "command");
+    const reply = await within(core.ui.command("model"), 5_000, "command");
     assert.equal(reply.message, "model: openrouter:z-ai/glm-5.3-flash");
-    await core.ui.request("shutdown", {});
+    await core.ui.shutdown();
     assert.equal(await within(core.exited, 10_000, "exit"), 0);
   } finally {
     core.child.kill("SIGKILL");
