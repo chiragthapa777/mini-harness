@@ -1,6 +1,6 @@
 # mini-coder — plan
 
-A single-user coding-agent CLI. The harness runs locally; the only remote call is the LLM API.
+A local coding-agent CLI; the only remote call is the LLM API.
 UI–core design: [mini-coder-architecture.md](mini-coder-architecture.md).
 
 ## Reuse
@@ -18,7 +18,7 @@ UI–core design: [mini-coder-architecture.md](mini-coder-architecture.md).
 
 ## Settled
 
-- File content stays in JSON tool calls; parse errors go back to the model.
+- File content stays in JSON tool calls.
 - Overwriting needs a prior read and an unchanged mtime.
 - Edits are checkpointed; `/undo` reverts the last turn, except bash changes.
 - `grep` uses `rg`, else a Node fallback.
@@ -31,7 +31,7 @@ UI–core design: [mini-coder-architecture.md](mini-coder-architecture.md).
 | # | Phase | Done when |
 |---|---|---|
 | 0 | `llm` cancellation, `core/protocol` export. **Done.** | — |
-| 1 | `coder-protocol`: schemas, `Connection`, version check | requests, notifications and core → UI requests round-trip over in-memory streams |
+| 1 | `coder-protocol`: schemas, `Connection`, version check | messages round-trip both ways over in-memory streams |
 | 2 | `coder-core` + `serve`: session, loop, stub gate; `read_file`, `edit_file`, `bash` | a scripted fake-model session runs tool → permission → result → `turn_end`, and aborts cleanly |
 | 3 | Headless `-p`, process lifecycle, bundle | `mini-coder -p` works against a real model; quitting or crashing either side ends both |
 | 4 | Ink UI: fold, transcript, tool cards, permission prompt, Esc, input queue | interactive session works; `ui/` import boundary test passes |
