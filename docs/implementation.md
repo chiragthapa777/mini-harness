@@ -187,7 +187,9 @@ with a one-line message instead of a React stack trace.
   the model emits fenced ` ```tool_call ` blocks (`{"tool": "...", "input": {...}}`),
   parsed the same way on every provider. `ToolCallTextFilter` hides fence contents from
   a live stream token-by-token. `renderToolResults` sends results back as a plain user
-  turn.
+  turn. Also exported on its own as `@mini-agent/core/protocol` (runtime imports: zod
+  only), so the mini-coder CLI gets the wire format without the server tools or
+  `packages/search`.
 - **`tools.ts`** — the stateless default tools: `current_time`, `calculator` (shunting-
   yard, no `eval`), `web_search`, `scrape_url`, `fetch_url` (the latter three delegate to
   `packages/search`).
@@ -200,9 +202,20 @@ with a one-line message instead of a React stack trace.
 ### 3.2 `packages/llm` — chat transport
 
 Two methods, `invoke` and `stream`, over plain `{ role, content }` messages
-(`ChatClient`). `chatModel(provider, model, maxTokens)` is the only place a provider is
-named — `OpenAICompatClient` (OpenRouter/OpenAI), `AnthropicClient`, `GoogleClient`, each
-SDK imported lazily. Also owns embeddings (`embed`, `embedQuery`) for the vector stores.
+(`ChatClient`). `chatModel(provider, model, maxTokens, connection?)` is the only place a
+provider is named — `OpenAICompatClient` (OpenRouter/OpenAI), `AnthropicClient`,
+`GoogleClient`, each SDK imported lazily. Also owns embeddings (`embed`, `embedQuery`)
+for the vector stores.
+
+- **Cancellation** — both methods take `{ signal?: AbortSignal }`. It is handed to each
+  SDK the way that SDK wants it (a request option for OpenAI and Anthropic,
+  `config.abortSignal` for Gemini), and every stream also checks it per chunk, so no
+  delta arrives after an abort. A cancelled call throws the signal's `reason` whatever
+  the provider (`cancelled()` maps each SDK's own abort error to it); any other error
+  passes through unchanged. The server does not pass a signal today.
+- **Connection** — optional `{ apiKey?, baseUrl? }`. Unset fields fall back to
+  `@mini-agent/config`, which is how the server runs; the mini-coder CLI passes its own
+  settings here instead of going through the server's env config.
 
 ### 3.3 `packages/memory`
 

@@ -47,14 +47,32 @@ export type Delta =
   | { type: "usage"; usage: Usage }
   | { type: "finish"; reason: string };
 
+/**
+ * Per-call options. `signal` cancels the request: an aborted call rejects (or
+ * the stream throws) with the signal's reason, and no further deltas arrive.
+ */
+export interface CallOptions {
+  signal?: AbortSignal;
+}
+
 export interface ChatClient {
   readonly provider: Provider;
   readonly model: string;
-  invoke(messages: Msg[]): Promise<Completion>;
-  stream(messages: Msg[]): AsyncGenerator<Delta, void, undefined>;
+  invoke(messages: Msg[], options?: CallOptions): Promise<Completion>;
+  stream(messages: Msg[], options?: CallOptions): AsyncGenerator<Delta, void, undefined>;
 }
 
-export interface ChatOptions {
+/**
+ * Where to reach the provider. Both fields are optional: anything left unset
+ * falls back to `@mini-agent/config`, which is how the server runs. A caller
+ * with its own settings (the mini-coder CLI) passes them here instead.
+ */
+export interface Connection {
+  apiKey?: string;
+  baseUrl?: string;
+}
+
+export interface ChatOptions extends Connection {
   model: string;
   maxTokens: number;
 }
@@ -62,6 +80,15 @@ export interface ChatOptions {
 /** Shared by every adapter: reasoning is opt-out, matching the old provider.ts. */
 export function reasoningEnabled(): boolean {
   return getConfig().llm.reasoningEnabled;
+}
+
+/**
+ * Each SDK fails a cancelled request with its own error class. Callers should
+ * not have to know which, so once the signal has fired every adapter rethrows
+ * the signal's reason instead — one shape, whatever the provider.
+ */
+export function cancelled(err: unknown, signal: AbortSignal | undefined): unknown {
+  return signal?.aborted ? signal.reason : err;
 }
 
 /**

@@ -7,10 +7,13 @@ import type {
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
 import {
+  cancelled,
   collectStream,
   reasoningEnabled,
+  type CallOptions,
   type ChatClient,
   type ChatOptions,
+  type Connection,
   type Delta,
   type Msg,
   type Provider,
@@ -44,12 +47,14 @@ export class OpenAICompatClient implements ChatClient {
   readonly provider: Provider;
   readonly model: string;
   private readonly maxTokens: number;
+  private readonly connection: Connection;
   private client?: OpenAI;
 
   constructor(provider: "openrouter" | "openai", options: ChatOptions) {
     this.provider = provider;
     this.model = options.model;
     this.maxTokens = options.maxTokens;
+    this.connection = { apiKey: options.apiKey, baseUrl: options.baseUrl };
   }
 
   /** Lazy so a run that never touches this provider never constructs a client. */
@@ -57,11 +62,12 @@ export class OpenAICompatClient implements ChatClient {
     if (!this.client) {
       const { default: OpenAIClient } = await import("openai");
       const { openrouter, openai } = getConfig().llm;
+      const { apiKey, baseUrl } = this.connection;
       this.client =
         this.provider === "openrouter"
           ? new OpenAIClient({
-              apiKey: openrouter.apiKey,
-              baseURL: openrouter.baseUrl,
+              apiKey: apiKey ?? openrouter.apiKey,
+              baseURL: baseUrl ?? openrouter.baseUrl,
               defaultHeaders: {
                 // Optional attribution; OpenRouter shows these on the activity
                 // page and in rankings.
@@ -69,7 +75,10 @@ export class OpenAICompatClient implements ChatClient {
                 "X-Title": openrouter.appName,
               },
             })
-          : new OpenAIClient({ apiKey: openai.apiKey });
+          : new OpenAIClient({
+              apiKey: apiKey ?? openai.apiKey,
+              ...(baseUrl ? { baseURL: baseUrl } : {}),
+            });
     }
     return this.client;
   }
@@ -91,14 +100,19 @@ export class OpenAICompatClient implements ChatClient {
     };
   }
 
-  async invoke(messages: Msg[]) {
+  async invoke(messages: Msg[], { signal }: CallOptions = {}) {
     const client = await this.sdk();
-    // `body` carries non-standard fields (OpenRouter's `reasoning`), so the
-    // params are assembled loosely and narrowed here.
-    const response = (await client.chat.completions.create({
-      ...this.body(messages),
-      stream: false,
-    } as unknown as ChatCompletionCreateParams)) as ChatCompletion;
+    let response: ChatCompletion;
+    try {
+      // `body` carries non-standard fields (OpenRouter's `reasoning`), so the
+      // params are assembled loosely and narrowed here.
+      response = (await client.chat.completions.create(
+        { ...this.body(messages), stream: false } as unknown as ChatCompletionCreateParams,
+        { signal },
+      )) as ChatCompletion;
+    } catch (err) {
+      throw cancelled(err, signal);
+    }
 
     const choice = response.choices[0];
     const message = choice?.message as
@@ -117,33 +131,44 @@ export class OpenAICompatClient implements ChatClient {
     };
   }
 
-  async *stream(messages: Msg[]): AsyncGenerator<Delta, void, undefined> {
+  async *stream(messages: Msg[], { signal }: CallOptions = {}): AsyncGenerator<Delta, void, undefined> {
     const client = await this.sdk();
-    const stream = (await client.chat.completions.create({
-      ...this.body(messages),
-      stream: true,
-      // Without this the final usage chunk never arrives and the token
-      // guardrail has nothing to count.
-      stream_options: { include_usage: true },
-    } as unknown as ChatCompletionCreateParams)) as unknown as AsyncIterable<ChatCompletionChunk>;
-
     let usage: Usage = { inputTokens: 0, outputTokens: 0 };
     let finish: string | undefined;
 
-    for await (const chunk of stream) {
-      const thinking = reasoningOf(chunk);
-      if (thinking) yield { type: "thinking", text: thinking };
+    try {
+      const stream = (await client.chat.completions.create(
+        {
+          ...this.body(messages),
+          stream: true,
+          // Without this the final usage chunk never arrives and the token
+          // guardrail has nothing to count.
+          stream_options: { include_usage: true },
+        } as unknown as ChatCompletionCreateParams,
+        { signal },
+      )) as unknown as AsyncIterable<ChatCompletionChunk>;
 
-      const text = chunk.choices[0]?.delta?.content;
-      if (text) yield { type: "text", text };
+      for await (const chunk of stream) {
+        // The SDK stops reading once aborted, but a chunk already buffered
+        // would still be yielded — the check makes cancellation immediate.
+        signal?.throwIfAborted();
 
-      if (chunk.usage) {
-        usage = {
-          inputTokens: chunk.usage.prompt_tokens ?? 0,
-          outputTokens: chunk.usage.completion_tokens ?? 0,
-        };
+        const thinking = reasoningOf(chunk);
+        if (thinking) yield { type: "thinking", text: thinking };
+
+        const text = chunk.choices[0]?.delta?.content;
+        if (text) yield { type: "text", text };
+
+        if (chunk.usage) {
+          usage = {
+            inputTokens: chunk.usage.prompt_tokens ?? 0,
+            outputTokens: chunk.usage.completion_tokens ?? 0,
+          };
+        }
+        finish = chunk.choices[0]?.finish_reason ?? finish;
       }
-      finish = chunk.choices[0]?.finish_reason ?? finish;
+    } catch (err) {
+      throw cancelled(err, signal);
     }
 
     yield { type: "usage", usage };

@@ -29,7 +29,7 @@ A single-user coding-agent CLI. The harness runs locally; the only remote call i
 
 ## Phases
 
-0. Cancellation in `llm`, and the `core` protocol export.
+0. Cancellation in `llm`, and the `core` protocol export. **Done.**
 1. Loop, `read_file`/`edit_file`/`bash`, `-p`.
 2. TUI.
 3. Permissions, `write_file`/`glob`/`grep`.

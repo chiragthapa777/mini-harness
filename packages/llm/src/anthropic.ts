@@ -1,10 +1,17 @@
 import { getConfig } from "@mini-agent/config";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { MessageParam, MessageStreamEvent } from "@anthropic-ai/sdk/resources/messages";
+import type {
+  Message,
+  MessageParam,
+  MessageStreamEvent,
+} from "@anthropic-ai/sdk/resources/messages";
 import {
+  cancelled,
   collectStream,
+  type CallOptions,
   type ChatClient,
   type ChatOptions,
+  type Connection,
   type Delta,
   type Msg,
   type Provider,
@@ -50,17 +57,23 @@ export class AnthropicClient implements ChatClient {
   readonly provider: Provider = "anthropic";
   readonly model: string;
   private readonly maxTokens: number;
+  private readonly connection: Connection;
   private client?: Anthropic;
 
   constructor(options: ChatOptions) {
     this.model = options.model;
     this.maxTokens = options.maxTokens;
+    this.connection = { apiKey: options.apiKey, baseUrl: options.baseUrl };
   }
 
   private async sdk(): Promise<Anthropic> {
     if (!this.client) {
       const { default: AnthropicClientCtor } = await import("@anthropic-ai/sdk");
-      this.client = new AnthropicClientCtor({ apiKey: getConfig().llm.anthropic.apiKey });
+      const { apiKey, baseUrl } = this.connection;
+      this.client = new AnthropicClientCtor({
+        apiKey: apiKey ?? getConfig().llm.anthropic.apiKey,
+        ...(baseUrl ? { baseURL: baseUrl } : {}),
+      });
     }
     return this.client;
   }
@@ -81,9 +94,17 @@ export class AnthropicClient implements ChatClient {
     };
   }
 
-  async invoke(messages: Msg[]) {
+  async invoke(messages: Msg[], { signal }: CallOptions = {}) {
     const client = await this.sdk();
-    const response = await client.messages.create({ ...this.body(messages), stream: false });
+    let response: Message;
+    try {
+      response = await client.messages.create(
+        { ...this.body(messages), stream: false },
+        { signal },
+      );
+    } catch (err) {
+      throw cancelled(err, signal);
+    }
 
     let text = "";
     let thinking = "";
@@ -103,31 +124,40 @@ export class AnthropicClient implements ChatClient {
     };
   }
 
-  async *stream(messages: Msg[]): AsyncGenerator<Delta, void, undefined> {
+  async *stream(messages: Msg[], { signal }: CallOptions = {}): AsyncGenerator<Delta, void, undefined> {
     const client = await this.sdk();
-    const stream = await client.messages.create({ ...this.body(messages), stream: true });
-
     let usage: Usage = { inputTokens: 0, outputTokens: 0 };
     let finish: string | undefined;
 
-    for await (const event of stream as AsyncIterable<MessageStreamEvent>) {
-      if (event.type === "content_block_delta") {
-        if (event.delta.type === "text_delta" && event.delta.text) {
-          yield { type: "text", text: event.delta.text };
-        } else if (event.delta.type === "thinking_delta" && event.delta.thinking) {
-          yield { type: "thinking", text: event.delta.thinking };
+    try {
+      const stream = await client.messages.create(
+        { ...this.body(messages), stream: true },
+        { signal },
+      );
+
+      for await (const event of stream as AsyncIterable<MessageStreamEvent>) {
+        signal?.throwIfAborted();
+
+        if (event.type === "content_block_delta") {
+          if (event.delta.type === "text_delta" && event.delta.text) {
+            yield { type: "text", text: event.delta.text };
+          } else if (event.delta.type === "thinking_delta" && event.delta.thinking) {
+            yield { type: "thinking", text: event.delta.thinking };
+          }
+        } else if (event.type === "message_start") {
+          // Input tokens are only ever reported here; output tokens arrive as a
+          // running total on message_delta.
+          usage = {
+            inputTokens: event.message.usage.input_tokens,
+            outputTokens: event.message.usage.output_tokens,
+          };
+        } else if (event.type === "message_delta") {
+          usage = { ...usage, outputTokens: event.usage.output_tokens };
+          finish = event.delta.stop_reason ?? finish;
         }
-      } else if (event.type === "message_start") {
-        // Input tokens are only ever reported here; output tokens arrive as a
-        // running total on message_delta.
-        usage = {
-          inputTokens: event.message.usage.input_tokens,
-          outputTokens: event.message.usage.output_tokens,
-        };
-      } else if (event.type === "message_delta") {
-        usage = { ...usage, outputTokens: event.usage.output_tokens };
-        finish = event.delta.stop_reason ?? finish;
       }
+    } catch (err) {
+      throw cancelled(err, signal);
     }
 
     yield { type: "usage", usage };
