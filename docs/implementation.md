@@ -27,7 +27,7 @@ run actually works step by step (the loop, tool calls, working memory), see
 | Cron / scheduled jobs | Built (`packages/jobs` scheduler, `scheduled_jobs`) |
 | Named agent personas (per-persona system prompt/config) | Not built — one global `SYSTEM_PROMPT` today (TODO 16) |
 | MCP support | Built (`packages/mcp`, stdio transport) |
-| mini-coder — local coding-agent CLI | In progress — see [`mini-coder-plan.md`](mini-coder-plan.md) and §3.10 |
+| mini-coder — local coding-agent CLI | Built — see [`mini-coder-architecture.md`](mini-coder-architecture.md) and §3.10 |
 
 ---
 
@@ -402,8 +402,7 @@ brings `config` along, but never reads server config from it.
     a subshell is not split, so only an exact rule covers it. The block list is regexes
     over the whole command: `sudo`, deleting `/` or `~`, disk devices, a download piped
     to a shell, fork bombs, `.env*` (not `.env.example`), `~/.ssh`, mini-coder's settings.
-    It is a pattern list, not a sandbox. Rules come from `SessionOptions.rules` (nothing
-    supplies them until phase 6) and from "always" answers, which add an allow rule: a
+    It is a pattern list, not a sandbox. Rules come from settings (`SessionOptions.rules`) and from "always" answers, which add an allow rule: a
     file tool as a whole, a command only verbatim.
   - `settings.ts` — `loadSettings(home, root)` merges `~/.mini-coder/settings.json`
     with `<project>/.mini-coder/settings.json`: `model`, `mode`,
@@ -490,10 +489,11 @@ brings `config` along, but never reads server config from it.
     command word is typed (`/`, `/co`), a list of matching actions and skills shows under
     the input, 8 rows at a time. ↑ ↓ choose, Enter runs the chosen one, Tab completes it
     and leaves room for arguments. A space closes the menu.
-  - Releases: `.github/workflows/release-coder.yml` runs on every `v*` tag: typecheck,
-    test, build with the tag as the version, and attach `mini-coder.mjs` plus its
-    sha256 to the GitHub release. `mini-coder --version` prints the tag (`dev` for a
-    local build). Install and update steps are in [`coder.md`](coder.md).
+  - Releases: `.github/workflows/release-coder.yml` runs on every `coder-v*` tag, apart
+    from the server's `v*` tags: typecheck, test, build with the tag minus `coder-` as
+    the version, and attach `mini-coder.mjs` plus its
+    sha256 to the GitHub release. `mini-coder --version` prints that version (`dev` for
+    a local build). Install and update steps are in [`coder.md`](coder.md).
   - `build.ts` — `pnpm --filter @mini-agent/coder build` bundles everything into
     `dist/mini-coder.mjs` (esbuild, one file, Node 22+), the package's `bin`. The API
     key comes from the user's settings, else the environment (`OPENROUTER_API_KEY`, …).

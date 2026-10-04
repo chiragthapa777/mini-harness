@@ -6,7 +6,7 @@ import type { Tool } from "./tool.js";
 import type { Listed } from "./wire.js";
 
 /**
- * What outlives a session, as plain files (see docs/mini-coder-memory.md).
+ * What outlives a session, as plain files (see docs/mini-coder-architecture.md).
  * `home` is `~/.mini-coder`; `root` is the project, already resolved.
  *
  *   <home>/AGENTS.md, <root>/AGENTS.md                   rules, written by people
