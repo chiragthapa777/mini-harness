@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fold, initialState, type Action } from "../src/ui/fold.js";
 import { editInput } from "../src/ui/input.js";
+import { ACTIONS, firstSentence, menuFor } from "../src/ui/menu.js";
 
 const uiDir = join(dirname(fileURLToPath(import.meta.url)), "../src/ui");
 
@@ -109,4 +110,20 @@ test("the input line edits at the cursor, and a pasted line break is not Enter",
 
   assert.equal(editInput({ text: "", cursor: 0 }, "one\ntwo\r", {}).text, "one two ");
   assert.deepEqual(editInput(line, "u", { ctrl: true }), { text: "", cursor: 0 });
+});
+
+test("the / menu lists actions and skills by prefix, and closes once arguments start", () => {
+  const items = [...ACTIONS, { name: "release", description: "Cut a release" }, { name: "Compare", description: "Compare two files" }];
+  const names = (text: string) => menuFor(text, items).map((item) => item.name);
+
+  assert.deepEqual(names("/"), ["clear", "compact", "undo", "model", "tools", "help", "quit", "release", "Compare"]);
+  assert.deepEqual(names("/co"), ["compact", "Compare"]);
+  assert.deepEqual(names("/rel"), ["release"]);
+  assert.deepEqual(names("/zzz"), []);
+  assert.deepEqual(names("/model "), []); // typing the argument
+  assert.deepEqual(names("hello /"), []);
+  assert.deepEqual(names(""), []);
+
+  assert.equal(firstSentence("Run a shell command.  `cd` carries over."), "Run a shell command.");
+  assert.equal(firstSentence("x".repeat(100), 10), "xxxxxxxxx…");
 });

@@ -13,6 +13,12 @@ export type Command = (typeof COMMANDS)[number];
 export type Decision = "allow" | "deny" | "always";
 export type StopReason = "end_turn" | "aborted" | "max_iterations" | "token_budget" | "length" | "error";
 
+/** A tool or a skill, as the UI lists it. */
+export interface Listed {
+  name: string;
+  description: string;
+}
+
 export type UiMessage =
   | { type: "submit"; text: string }
   | { type: "abort" }
@@ -20,7 +26,7 @@ export type UiMessage =
   | { type: "permission_answer"; callId: string; decision: Decision };
 
 export type CoreMessage =
-  | { type: "session"; model: string; mode: PermissionMode } // at start, and when the model changes
+  | { type: "session"; model: string; mode: PermissionMode; tools: Listed[]; skills: Listed[] } // at start, and when the model changes
   | { type: "turn_start" }
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }

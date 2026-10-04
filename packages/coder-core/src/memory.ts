@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import { projectFolder, recallTool } from "./sessions.js";
 import type { Tool } from "./tool.js";
+import type { Listed } from "./wire.js";
 
 /**
  * What outlives a session, as plain files (see docs/mini-coder-memory.md).
@@ -55,7 +56,7 @@ function findSkills(folder: string): Skill[] {
  * the tools that reach it. Nothing is re-read during the session, so the
  * prompt stays the same and the provider's cache keeps working.
  */
-export function loadMemory(home: string, root: string): { prompt: string; tools: Tool[] } {
+export function loadMemory(home: string, root: string): { prompt: string; tools: Tool[]; skills: Listed[] } {
   // A project skill replaces a personal one with the same name.
   const skills = new Map<string, Skill>();
   for (const skill of [...findSkills(join(home, "skills")), ...findSkills(join(root, ".mini-coder", "skills"))]) {
@@ -117,5 +118,9 @@ export function loadMemory(home: string, root: string): { prompt: string; tools:
   };
 
   const recall = recallTool(join(projectFolder(home, root), "sessions"));
-  return { prompt, tools: skills.size > 0 ? [skillTool, rememberTool, recall] : [rememberTool, recall] };
+  return {
+    prompt,
+    tools: skills.size > 0 ? [skillTool, rememberTool, recall] : [rememberTool, recall],
+    skills: [...skills.values()].map(({ name, description }) => ({ name, description })),
+  };
 }

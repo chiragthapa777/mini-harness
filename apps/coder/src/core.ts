@@ -50,6 +50,7 @@ export async function startCore(options: {
       mode: options.mode ?? settings.mode,
       rules: settings.permissions,
       memory: memory.prompt,
+      skills: memory.skills,
       logFile,
       tools: [...defaultTools, ...memory.tools, ...mcp.tools],
       createModel: ({ provider, model }) =>

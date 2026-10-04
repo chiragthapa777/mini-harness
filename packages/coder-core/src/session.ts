@@ -7,7 +7,7 @@ import { DEFAULT_MODEL, formatModel, parseModel, type ModelSpec } from "./model.
 import { buildSystemPrompt, COMPACT_PROMPT } from "./prompt.js";
 import { appendRecord, keepForReplay, readRecords, type SessionRecord } from "./sessions.js";
 import type { Tool } from "./tool.js";
-import type { Command, CoreMessage, Decision, PermissionMode, StopReason, UiMessage } from "./wire.js";
+import type { Command, CoreMessage, Decision, Listed, PermissionMode, StopReason, UiMessage } from "./wire.js";
 
 export interface SessionOptions {
   cwd: string;
@@ -19,6 +19,8 @@ export interface SessionOptions {
   rules?: { allow?: string[]; deny?: string[] };
   /** Text for the system prompt: AGENTS.md, remembered facts, the skill list. */
   memory?: string;
+  /** The skills behind that list. `/name` as a message asks the model to use one. */
+  skills?: Listed[];
   /** The session log. A file that already has turns is resumed; without a file nothing is saved. */
   logFile?: string;
   limits?: Partial<Limits>;
@@ -106,7 +108,7 @@ export class Session {
     this.startTurn([{ type: "user", text }], async (emit, signal) => {
       this.checkpoints.begin();
       if (this.contextTokens > this.limits.compactAtTokens) await this.compact(emit, signal);
-      this.history.push({ role: "user", content: text });
+      this.history.push({ role: "user", content: this.expandSkill(text) });
 
       return runLoop(this.history, {
         model: this.model,
@@ -265,7 +267,20 @@ export class Session {
     throw new Error(`unknown command /${name}`);
   }
 
+  /** `/release 1.2` becomes an instruction to load and follow the `release` skill. The screen and the log keep what was typed. */
+  private expandSkill(text: string): string {
+    const [, name, rest = ""] = /^\/([\w-]+)\s*(.*)$/s.exec(text) ?? [];
+    if (!this.options.skills?.some((skill) => skill.name === name)) return text;
+    return `Use the "${name}" skill: load it with the skill tool, then follow it.\n\n${rest}`.trim();
+  }
+
   private sendSession(): void {
-    this.send({ type: "session", model: formatModel(this.spec), mode: this.mode });
+    this.send({
+      type: "session",
+      model: formatModel(this.spec),
+      mode: this.mode,
+      tools: this.options.tools.map(({ name, description }) => ({ name, description })),
+      skills: this.options.skills ?? [],
+    });
   }
 }

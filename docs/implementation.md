@@ -384,7 +384,10 @@ brings `config` along, but never reads server config from it.
     if they are not usable, and sends `session`. `receive(message)` handles `submit`,
     `abort`, `command` and `permission_answer`; one turn at a time. Commands: `/clear`,
     `/undo` (restores the last turn's files; the model must re-read them), `/model`,
-    `/compact`. Each answers with a `notice`. `stop()` aborts the turn and waits.
+    `/compact`. Each answers with a `notice`. A message `/name …` where `name` is a
+    skill is sent to the model as the instruction to load and follow that skill; the
+    screen and the log keep what was typed. The `session` message lists the tools and
+    skills, for the UI. `stop()` aborts the turn and waits.
   - `loop.ts` — `runLoop`: stream the reply (tool_call blocks hidden from the screen),
     run each call (bad calls become error results), add results to the history, repeat
     until a reply has no calls. Limits: 100 model calls and 2M tokens per turn; tool
@@ -477,7 +480,12 @@ brings `config` along, but never reads server config from it.
     ↑ ↓ recall sent messages, pasted line breaks become spaces. Input typed during a
     turn is queued and sent when the turn ends. Esc aborts the turn and drops the
     queue. `/clear`, `/undo`, `/model`, `/compact` go to the core; `/help` lists them;
+    `/tools` lists the model's tools; `/<skill>` runs a skill;
     `/quit` or Ctrl+C twice exits. Ink and React load only on this path.
+  - The `/` menu (`src/ui/menu.ts`, pure, plus `Menu` in `App.tsx`): while only the
+    command word is typed (`/`, `/co`), a list of matching actions and skills shows under
+    the input, 8 rows at a time. ↑ ↓ choose, Enter runs the chosen one, Tab completes it
+    and leaves room for arguments. A space closes the menu.
   - `build.ts` — `pnpm --filter @mini-agent/coder build` bundles everything into
     `dist/mini-coder.mjs` (esbuild, one file, Node 22+), the package's `bin`. The API
     key comes from the user's settings, else the environment (`OPENROUTER_API_KEY`, …).

@@ -17,8 +17,8 @@ export interface ViewState {
   items: Item[];
   running: boolean;
   thinking: boolean;
-  /** Model and mode, once the core has said them. */
-  session?: { model: string; mode: string };
+  /** Model, mode, tools and skills, once the core has said them. */
+  session?: Extract<CoreMessage, { type: "session" }>;
   /** Tokens of the latest model call. */
   usage?: { inputTokens: number; outputTokens: number };
 }
@@ -47,7 +47,7 @@ export function fold(state: ViewState, action: Action): ViewState {
       return add({ kind: "notice", text: action.text, isError: action.isError ?? false });
 
     case "session":
-      return { ...state, session: { model: action.model, mode: action.mode } };
+      return { ...state, session: action };
 
     case "replay":
       // A resumed session: the earlier turns, none of them still running.

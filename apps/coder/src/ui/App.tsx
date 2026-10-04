@@ -5,6 +5,7 @@ import { COMMANDS, type Command, type Core, type CoreMessage, type Decision } fr
 import { Markdown } from "@mini-agent/ink-markdown";
 import { fold, initialState, type Item } from "./fold.js";
 import { editInput, emptyInput } from "./input.js";
+import { ACTIONS, firstSentence, menuFor, type MenuItem } from "./menu.js";
 
 type PermissionParams = Extract<CoreMessage, { type: "permission_request" }>;
 type ToolItem = Extract<Item, { kind: "tool" }>;
@@ -31,14 +32,13 @@ const TOOL_LABELS: Record<string, string> = {
   recall: "Recall",
 };
 
+const MENU_ROWS = 8;
+
 const HELP = [
-  "/clear   start a new conversation",
-  "/undo    restore the files the last turn changed",
-  "/model   show the model, or switch: /model provider:model",
-  "/compact replace the conversation with a summary of it",
-  "/quit    exit (or Ctrl+C twice)",
-  "esc      interrupt the turn",
-  "↑ ↓      earlier messages",
+  ...ACTIONS.map((action) => `/${action.name.padEnd(8)} ${action.description}`),
+  "/<skill>  run a skill; type / to see them",
+  "esc       interrupt the turn",
+  "↑ ↓       earlier messages",
 ].join("\n");
 
 interface Asking {
@@ -57,6 +57,7 @@ export function App({ core, cwd }: { core: Core; cwd: string }) {
   const [queue, setQueue] = useState<string[]>([]);
   const [asking, setAsking] = useState<Asking>();
   const [quitArmed, setQuitArmed] = useState(false);
+  const [menuChoice, setMenuChoice] = useState({ text: "", at: 0 });
   const turnStartedAt = useRef(0);
 
   useEffect(() => {
@@ -82,10 +83,23 @@ export function App({ core, cwd }: { core: Core; cwd: string }) {
     core.send({ type: "submit", text: next });
   }, [state.running, queue, core]);
 
+  // The `/` menu: actions first, then skills. The choice resets when the text changes.
+  const skills = state.session?.skills ?? [];
+  const menu = asking ? [] : menuFor(input.text, [...ACTIONS, ...skills]);
+  const menuAt = menuChoice.text === input.text ? Math.min(menuChoice.at, menu.length - 1) : 0;
+
   function runCommand(line: string) {
     const [word = "", ...rest] = line.slice(1).split(/\s+/);
     if (word === "quit" || word === "exit") return exit();
     if (word === "help") return dispatch({ type: "notice", text: HELP });
+    if (word === "tools") {
+      const tools = state.session?.tools ?? [];
+      const width = Math.max(...tools.map((tool) => tool.name.length)) + 2;
+      const lines = tools.map((tool) => tool.name.padEnd(width) + firstSentence(tool.description));
+      return dispatch({ type: "notice", text: lines.join("\n") });
+    }
+    // A skill is a message, not a command: the core turns it into the instruction to use it.
+    if (skills.some((skill) => skill.name === word)) return setQueue((current) => [...current, line]);
 
     if (!(COMMANDS as readonly string[]).includes(word)) {
       return dispatch({ type: "notice", text: `unknown command /${word}. /help lists the commands`, isError: true });
@@ -124,8 +138,19 @@ export function App({ core, cwd }: { core: Core; cwd: string }) {
       return;
     }
 
+    const picked = menu[menuAt];
+    if (picked && (key.upArrow || key.downArrow)) {
+      const at = (menuAt + (key.upArrow ? -1 : 1) + menu.length) % menu.length;
+      return setMenuChoice({ text: input.text, at });
+    }
+    if (picked && key.tab) {
+      // Completes the word and closes the menu, ready for arguments.
+      const text = `/${picked.name} `;
+      return setInput({ text, cursor: text.length });
+    }
+
     if (key.return) {
-      const text = input.text.trim();
+      const text = picked ? `/${picked.name}` : input.text.trim();
       setInput(emptyInput);
       if (!text) return;
       setSent([...sent, text]);
@@ -194,8 +219,9 @@ export function App({ core, cwd }: { core: Core; cwd: string }) {
                 {input.text.slice(input.cursor + 1)}
               </Text>
             </Box>
+            <Menu items={menu} at={menuAt} />
             <Box justifyContent="space-between" paddingX={2}>
-              <Text dimColor>{quitArmed ? "Press Ctrl+C again to exit" : "/help for commands"}</Text>
+              <Text dimColor>{quitArmed ? "Press Ctrl+C again to exit" : "/ for commands and skills"}</Text>
               <Text dimColor>
                 {state.session?.model} · {state.session?.mode}
               </Text>
@@ -207,6 +233,26 @@ export function App({ core, cwd }: { core: Core; cwd: string }) {
   );
 }
 
+/** The `/` menu under the input box: a window of rows around the chosen one. */
+function Menu({ items, at }: { items: MenuItem[]; at: number }) {
+  if (items.length === 0) return null;
+  const first = Math.max(0, Math.min(at - Math.floor(MENU_ROWS / 2), items.length - MENU_ROWS));
+  const width = Math.max(...items.map((item) => item.name.length)) + 3;
+  return (
+    <Box flexDirection="column" paddingX={2}>
+      {items.slice(first, first + MENU_ROWS).map((item, index) => (
+        <Text key={item.name} color={first + index === at ? ACCENT : undefined} dimColor={first + index !== at}>
+          {`/${item.name}`.padEnd(width)}
+          {firstSentence(item.description)}
+        </Text>
+      ))}
+      <Text dimColor>
+        {items.length > MENU_ROWS ? `${at + 1}/${items.length} · ` : ""}↑↓ choose · enter run · tab complete
+      </Text>
+    </Box>
+  );
+}
+
 function Welcome({ cwd }: { cwd: string }) {
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={ACCENT} paddingX={1} alignSelf="flex-start">
@@ -214,7 +260,7 @@ function Welcome({ cwd }: { cwd: string }) {
         Welcome to <Text bold>mini-coder</Text>
       </Text>
       <Text> </Text>
-      <Text dimColor>{"  /help for commands"}</Text>
+      <Text dimColor>{"  / for commands and skills"}</Text>
       <Text dimColor>{`  cwd: ${cwd.replace(homedir(), "~")}`}</Text>
     </Box>
   );

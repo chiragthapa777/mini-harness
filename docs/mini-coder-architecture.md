@@ -47,7 +47,7 @@ type UiMessage =
 
 // core → UI: the send function given to the Session
 type CoreMessage =
-  | { type: "session"; model: string; mode: PermissionMode }
+  | { type: "session"; model: string; mode: PermissionMode; tools: Listed[]; skills: Listed[] }
   | { type: "turn_start" }
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }

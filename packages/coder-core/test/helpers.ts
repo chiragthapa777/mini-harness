@@ -86,6 +86,7 @@ export async function harness(options: {
   mode?: SessionOptions["mode"];
   model?: string;
   logFile?: string;
+  skills?: SessionOptions["skills"];
 }) {
   const model = fakeModel(options.replies);
   const events: CoreMessage[] = [];
@@ -115,6 +116,7 @@ export async function harness(options: {
       mode: options.mode,
       model: options.model,
       logFile: options.logFile,
+      skills: options.skills,
     },
   );
 

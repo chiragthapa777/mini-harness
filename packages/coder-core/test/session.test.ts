@@ -169,7 +169,8 @@ test("/clear and /model", async () => {
 
   assert.equal((await h.command("model")).text, "model: openrouter:z-ai/glm-5.3-flash");
   assert.equal((await h.command("model", "anthropic:claude-opus-5")).text, "model set to anthropic:claude-opus-5");
-  assert.deepEqual(h.events.at(-2), { type: "session", model: "anthropic:claude-opus-5", mode: "default" });
+  const session = h.events.at(-2);
+  assert.equal(session?.type === "session" && session.model, "anthropic:claude-opus-5");
   const refused = await h.command("model", "nonsense");
   assert.match(refused.text, /provider:model/);
   assert.equal(refused.isError, true);
@@ -180,5 +181,28 @@ test("a session checks the folder and the model, then says what it runs with", a
   await assert.rejects(harness({ replies: [], model: "acme:gpt" }), /unknown provider "acme"/);
 
   const h = await harness({ replies: [], model: "google:gemini-2.5-pro", mode: "accept-edits" });
-  assert.deepEqual(h.events, [{ type: "session", model: "google:gemini-2.5-pro", mode: "accept-edits" }]);
+  assert.deepEqual(h.events, [
+    {
+      type: "session",
+      model: "google:gemini-2.5-pro",
+      mode: "accept-edits",
+      tools: [{ name: "echo", description: "returns its input" }],
+      skills: [],
+    },
+  ]);
+});
+
+test("/name runs a skill: the model is told to load it, the screen and the log keep what was typed", async () => {
+  const logFile = join(await tempProject(), "s.jsonl");
+  const skills = [{ name: "release", description: "Cut a release" }];
+  const h = await harness({ replies: ["ok", "ok", "ok"], skills, logFile });
+  assert.deepEqual(h.events[0]?.type === "session" && h.events[0].skills, skills);
+
+  await h.turn("/release 1.2 today");
+  assert.equal(h.model.seen[0]!.at(-1)!.content, 'Use the "release" skill: load it with the skill tool, then follow it.\n\n1.2 today');
+  assert.match(await readFile(logFile, "utf8"), /"type":"user","text":"\/release 1.2 today"/);
+
+  // Anything that is not a skill's name goes to the model as typed.
+  await h.turn("/releases are slow");
+  assert.equal(h.model.seen[1]!.at(-1)!.content, "/releases are slow");
 });
