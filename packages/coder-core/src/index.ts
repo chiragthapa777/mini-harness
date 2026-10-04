@@ -7,4 +7,5 @@ export { buildSystemPrompt, type Environment } from "./prompt.js";
 export { Session, type SessionOptions } from "./session.js";
 export { loadSettings, type Settings } from "./settings.js";
 export { loadMemory } from "./memory.js";
+export { sessionFile } from "./sessions.js";
 export * from "./wire.js";

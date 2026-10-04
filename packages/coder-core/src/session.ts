@@ -4,7 +4,8 @@ import { Checkpoints } from "./checkpoints.js";
 import { alwaysRule, checkPermission, parseRule, type Rules } from "./gate.js";
 import { DEFAULT_LIMITS, runLoop, type Limits } from "./loop.js";
 import { DEFAULT_MODEL, formatModel, parseModel, type ModelSpec } from "./model.js";
-import { buildSystemPrompt } from "./prompt.js";
+import { buildSystemPrompt, COMPACT_PROMPT } from "./prompt.js";
+import { appendRecord, keepForReplay, readRecords, type SessionRecord } from "./sessions.js";
 import type { Tool } from "./tool.js";
 import type { Command, CoreMessage, Decision, PermissionMode, StopReason, UiMessage } from "./wire.js";
 
@@ -18,6 +19,8 @@ export interface SessionOptions {
   rules?: { allow?: string[]; deny?: string[] };
   /** Text for the system prompt: AGENTS.md, remembered facts, the skill list. */
   memory?: string;
+  /** The session log. A file that already has turns is resumed; without a file nothing is saved. */
+  logFile?: string;
   limits?: Partial<Limits>;
 }
 
@@ -34,6 +37,8 @@ export class Session {
   private system: string;
   private turn?: { controller: AbortController; done: Promise<void> };
   private history: Msg[] = [];
+  private logged = 0; // how many history entries are already in the session log
+  private contextTokens = 0; // size of the last model call
   private checkpoints = new Checkpoints();
   private reads = new Map<string, number>(); // file → mtime when read
   private shell: { cwd: string };
@@ -67,6 +72,14 @@ export class Session {
       memory: options.memory,
     });
     this.sendSession();
+
+    const records = options.logFile ? readRecords(options.logFile) : [];
+    for (const record of records) {
+      if (record.reset) this.history = [];
+      this.history.push(...record.history);
+    }
+    this.logged = this.history.length;
+    if (records.length > 0) this.send({ type: "replay", messages: records.flatMap((record) => record.messages) });
   }
 
   receive(message: UiMessage): void {
@@ -90,25 +103,18 @@ export class Session {
   private submit(text: string): void {
     if (this.turn) return this.send({ type: "notice", text: "a turn is already running", isError: true });
 
-    const controller = new AbortController();
-    this.turn = { controller, done: this.runTurn(text, controller.signal) };
-  }
+    this.startTurn([{ type: "user", text }], async (emit, signal) => {
+      this.checkpoints.begin();
+      if (this.contextTokens > this.limits.compactAtTokens) await this.compact(emit, signal);
+      this.history.push({ role: "user", content: text });
 
-  private async runTurn(text: string, signal: AbortSignal): Promise<void> {
-    this.checkpoints.begin();
-    this.history.push({ role: "user", content: text });
-    this.send({ type: "turn_start" });
-
-    let stopReason: StopReason;
-    let error: string | undefined;
-    try {
-      stopReason = await runLoop(this.history, {
+      return runLoop(this.history, {
         model: this.model,
         tools: this.options.tools,
         system: this.system,
         limits: this.limits,
         signal,
-        emit: this.send,
+        emit,
         authorize: (tool, input, callId) => this.authorize(tool, input, callId, signal),
         nextCallId: () => `call_${++this.callCount}`,
         context: {
@@ -118,14 +124,78 @@ export class Session {
           checkpoint: (path) => this.checkpoints.save(path),
         },
       });
-    } catch (err) {
-      stopReason = "error";
-      error = (err as Error).message;
-    }
+    });
+  }
 
-    // Free the session first, so the UI can submit as soon as it sees turn_end.
-    this.turn = undefined;
-    this.send(error === undefined ? { type: "turn_end", stopReason } : { type: "turn_end", stopReason, error });
+  /**
+   * Runs `work` as the one running turn: turn_start, the work, a line in the
+   * session log, turn_end. `shown` collects what a resume will replay.
+   */
+  private startTurn(
+    shown: CoreMessage[],
+    work: (emit: (message: CoreMessage) => void, signal: AbortSignal) => Promise<StopReason>,
+  ): void {
+    const controller = new AbortController();
+    const { signal } = controller;
+    const emit = (message: CoreMessage) => {
+      if (message.type === "usage") this.contextTokens = message.inputTokens + message.outputTokens;
+      keepForReplay(shown, message);
+      this.send(message);
+    };
+
+    const run = async () => {
+      this.send({ type: "turn_start" });
+      let end: CoreMessage;
+      try {
+        end = { type: "turn_end", stopReason: await work(emit, signal) };
+      } catch (err) {
+        end = signal.aborted
+          ? { type: "turn_end", stopReason: "aborted" }
+          : { type: "turn_end", stopReason: "error", error: (err as Error).message };
+      }
+
+      await this.log({ messages: [...shown, end], history: this.history.slice(this.logged) });
+      // Free the session first, so the UI can submit as soon as it sees turn_end.
+      this.turn = undefined;
+      this.send(end);
+    };
+    this.turn = { controller, done: run() };
+  }
+
+  /** Replaces the history with the model's own summary of it. */
+  private async compact(emit: (message: CoreMessage) => void, signal: AbortSignal): Promise<void> {
+    if (this.history.length === 0) return emit({ type: "notice", text: "nothing to compact" });
+
+    const messages: Msg[] = [
+      { role: "system", content: this.system },
+      ...this.history,
+      { role: "user", content: COMPACT_PROMPT },
+    ];
+    let summary = "";
+    for await (const delta of this.model.stream(messages, { signal })) {
+      if (delta.type === "text") summary += delta.text;
+    }
+    if (!summary.trim()) throw new Error("compaction failed: the model returned no summary");
+
+    const notice: CoreMessage = { type: "notice", text: "conversation compacted" };
+    this.history = [
+      { role: "user", content: `Summary of the conversation so far:\n\n${summary.trim()}` },
+      { role: "assistant", content: "Understood. I will continue from this summary." },
+    ];
+    this.contextTokens = 0;
+    await this.log({ reset: true, messages: [notice], history: this.history });
+    emit(notice);
+  }
+
+  /** Appends to the session log. A failed write is reported, never fatal: the session goes on unsaved. */
+  private async log(record: Omit<SessionRecord, "at">): Promise<void> {
+    this.logged = this.history.length;
+    if (!this.options.logFile) return;
+    try {
+      await appendRecord(this.options.logFile, record);
+    } catch (err) {
+      this.send({ type: "notice", text: `could not save the session: ${(err as Error).message}`, isError: true });
+    }
   }
 
   /** Returns why the call may not run, or null when it may. */
@@ -150,6 +220,13 @@ export class Session {
 
   /** Runs a slash command and reports the outcome as a notice. */
   private async command(name: Command, arg?: string): Promise<void> {
+    if (name === "compact" && !this.turn) {
+      // A turn of its own: it calls the model, so it can be watched and interrupted like one.
+      return this.startTurn([], async (emit, signal) => {
+        await this.compact(emit, signal);
+        return "end_turn";
+      });
+    }
     try {
       this.send({ type: "notice", text: await this.runCommand(name, arg) });
     } catch (err) {
@@ -163,6 +240,8 @@ export class Session {
     if (name === "clear") {
       this.history = [];
       this.reads.clear();
+      this.contextTokens = 0;
+      await this.log({ reset: true, messages: [{ type: "notice", text: "conversation cleared" }], history: [] });
       return "conversation cleared";
     }
 
@@ -183,7 +262,7 @@ export class Session {
       return `model set to ${arg}`;
     }
 
-    return "compaction is not available yet";
+    throw new Error(`unknown command /${name}`);
   }
 
   private sendSession(): void {

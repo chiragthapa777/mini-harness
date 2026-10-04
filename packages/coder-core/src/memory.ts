@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { projectFolder, recallTool } from "./sessions.js";
 import type { Tool } from "./tool.js";
 
 /**
@@ -10,6 +11,7 @@ import type { Tool } from "./tool.js";
  *   <home>/AGENTS.md, <root>/AGENTS.md                   rules, written by people
  *   <home>/MEMORY.md, <home>/projects/<slug>/MEMORY.md   facts, one per line
  *   <home>/skills/<name>/SKILL.md, <root>/.mini-coder/skills/<name>/SKILL.md
+ *   <home>/projects/<slug>/sessions/*.jsonl                session logs (sessions.ts)
  */
 
 const MAX_FILE_CHARS = 20_000;
@@ -30,8 +32,7 @@ function read(file: string): string {
 }
 
 function factsFile(home: string, root: string, scope: "user" | "project"): string {
-  // The project's facts live outside the repository, under a folder named after its path.
-  return scope === "user" ? join(home, "MEMORY.md") : join(home, "projects", root.replaceAll("/", "-"), "MEMORY.md");
+  return join(scope === "user" ? home : projectFolder(home, root), "MEMORY.md");
 }
 
 /** Skills by name: the folder is the name, `description:` in the file's front matter says when to use it. */
@@ -51,7 +52,7 @@ function findSkills(folder: string): Skill[] {
 
 /**
  * Loads memory once, at session start: the text for the system prompt, and
- * the two tools that reach it. Nothing is re-read during the session, so the
+ * the tools that reach it. Nothing is re-read during the session, so the
  * prompt stays the same and the provider's cache keeps working.
  */
 export function loadMemory(home: string, root: string): { prompt: string; tools: Tool[] } {
@@ -115,5 +116,6 @@ export function loadMemory(home: string, root: string): { prompt: string; tools:
     },
   };
 
-  return { prompt, tools: skills.size > 0 ? [skillTool, rememberTool] : [rememberTool] };
+  const recall = recallTool(join(projectFolder(home, root), "sessions"));
+  return { prompt, tools: skills.size > 0 ? [skillTool, rememberTool, recall] : [rememberTool, recall] };
 }

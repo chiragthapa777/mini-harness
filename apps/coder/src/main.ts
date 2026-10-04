@@ -9,7 +9,8 @@ import { runHeadless } from "./ui/headless.js";
  */
 const USAGE = `usage:
   mini-coder [--model provider:model] [--mode …]     interactive session
-  mini-coder -p "<prompt>" [--model provider:model] [--mode ${PERMISSION_MODES.join("|")}]`;
+  mini-coder -p "<prompt>" [--model provider:model] [--mode ${PERMISSION_MODES.join("|")}]
+  --resume    continue the most recent session in this folder`;
 
 function fail(message: string): never {
   console.error(message);
@@ -23,6 +24,7 @@ function readArgs() {
         print: { type: "string", short: "p" },
         model: { type: "string" },
         mode: { type: "string" },
+        resume: { type: "boolean" },
       },
       allowPositionals: true,
     });
@@ -39,7 +41,7 @@ if (mode !== undefined && !PERMISSION_MODES.includes(mode)) fail(`mini-coder: un
 
 function start(): Core {
   try {
-    return startCore({ cwd: process.cwd(), model: values.model, mode });
+    return startCore({ cwd: process.cwd(), model: values.model, mode, resume: values.resume });
   } catch (err) {
     fail(`mini-coder: ${(err as Error).message}`);
   }

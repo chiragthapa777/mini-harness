@@ -46,6 +46,25 @@ test("a turn folds into user message, text, tool card, text", () => {
   assert.deepEqual(state.usage, { inputTokens: 50, outputTokens: 5 });
 });
 
+test("a replay rebuilds the transcript and leaves nothing running", () => {
+  const state = run([
+    {
+      type: "replay",
+      messages: [
+        { type: "user", text: "run echo" },
+        { type: "text_delta", text: "Checking." },
+        { type: "tool_start", callId: "call_1", name: "bash", input: { command: "echo hi" } },
+        { type: "tool_end", callId: "call_1", output: "hi\n", isError: false },
+        { type: "turn_end", stopReason: "end_turn" },
+        { type: "user", text: "cut off mid-turn" }, // no turn_end: the session died here
+      ],
+    },
+  ]);
+
+  assert.deepEqual(state.items.map((item) => item.kind), ["user", "assistant", "tool", "user"]);
+  assert.equal(state.running, false);
+});
+
 test("sending a message marks the turn running before the core says so", () => {
   assert.equal(run([{ type: "user", text: "hi" }]).running, true);
 });

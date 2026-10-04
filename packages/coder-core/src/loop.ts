@@ -8,12 +8,14 @@ export interface Limits {
   maxIterations: number; // model calls per user turn
   maxTokensPerTurn: number; // input + output tokens over the turn
   maxToolOutputChars: number; // longer tool results keep head and tail
+  compactAtTokens: number; // a turn that starts with more context than this compacts first
 }
 
 export const DEFAULT_LIMITS: Limits = {
   maxIterations: 100,
   maxTokensPerTurn: 2_000_000,
   maxToolOutputChars: 30_000,
+  compactAtTokens: 120_000,
 };
 
 export interface LoopOptions {

@@ -5,6 +5,7 @@ import {
   loadMemory,
   loadSettings,
   Session,
+  sessionFile,
   type Core,
   type CoreMessage,
   type PermissionMode,
@@ -18,10 +19,11 @@ const MAX_OUTPUT_TOKENS = 16_000;
 /**
  * Builds the core for a UI to drive — the one file that imports coder-core,
  * coder-tools and llm together, and reads settings and memory from disk.
- * Flags win over settings. Throws when the folder, the model or a settings
- * file is not usable.
+ * Flags win over settings. `resume` continues the folder's latest session.
+ * Throws when the folder, the model or a settings file is not usable, or
+ * there is nothing to resume.
  */
-export function startCore(options: { cwd: string; model?: string; mode?: PermissionMode }): Core {
+export function startCore(options: { cwd: string; model?: string; mode?: PermissionMode; resume?: boolean }): Core {
   // The session speaks as soon as it exists; keep that until the UI listens.
   const early: CoreMessage[] = [];
   let handler = (message: CoreMessage): void => void early.push(message);
@@ -37,6 +39,7 @@ export function startCore(options: { cwd: string; model?: string; mode?: Permiss
     mode: options.mode ?? settings.mode,
     rules: settings.permissions,
     memory: memory.prompt,
+    logFile: sessionFile(home, root, options.resume ?? false),
     tools: [...defaultTools, ...memory.tools],
     createModel: ({ provider, model }) =>
       chatModel(provider, model, MAX_OUTPUT_TOKENS, settings.providers?.[provider]),

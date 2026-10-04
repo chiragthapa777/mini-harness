@@ -57,7 +57,9 @@ type CoreMessage =
   | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "turn_end"; stopReason: "end_turn" | "aborted" | "max_iterations" | "token_budget" | "length" | "error"; error?: string }
   | { type: "permission_request"; callId: string; tool: string; input: unknown; reason: string }
-  | { type: "notice"; text: string; isError?: boolean };
+  | { type: "notice"; text: string; isError?: boolean }
+  | { type: "user"; text: string }              // only inside a replay
+  | { type: "replay"; messages: CoreMessage[] }; // a resumed session's earlier turns
 ```
 
 Rules:
@@ -67,7 +69,8 @@ Rules:
 - **Delivery is a function call.** `send` runs the UI's handler before it returns, so a handler must not throw and must not do slow work.
 - **Permission is two messages.** The core sends `permission_request` and the loop waits for the `permission_answer` with the same `callId`. `abort` counts as deny. `always` allows that call for the session.
 - **A command answers with a `notice`**, as does a `submit` sent while a turn runs.
-- **One turn at a time.** The UI queues input typed mid-turn.
+- **One turn at a time.** The UI queues input typed mid-turn. `/compact` is a turn too.
+- **Resume is a replay.** `--resume` reopens the folder's latest session log. The core loads the model's history from it and sends one `replay` with what the screen showed; the UI folds it like live messages. A headless run ignores it.
 
 ## One turn
 
@@ -124,6 +127,6 @@ Tests call `Session.receive` and collect what it sends, with a fake `ChatClient`
 ## Not now
 
 - A separate core process, sockets, several sessions per process.
-- State snapshots (resume replays events).
+- State snapshots (resume replays the log). Picking which session to resume: it is always the latest.
 - JSON Schema and Go codegen, until a Go UI exists.
 - OpenTelemetry: the session log is the trace.

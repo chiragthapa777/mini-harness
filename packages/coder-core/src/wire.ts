@@ -30,7 +30,9 @@ export type CoreMessage =
   | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "turn_end"; stopReason: StopReason; error?: string }
   | { type: "permission_request"; callId: string; tool: string; input: unknown; reason: string }
-  | { type: "notice"; text: string; isError?: boolean }; // a command's result, or why a message was refused
+  | { type: "notice"; text: string; isError?: boolean } // a command's result, or why a message was refused
+  | { type: "user"; text: string } // what the user sent; the core sends it only inside a replay
+  | { type: "replay"; messages: CoreMessage[] }; // a resumed session's earlier turns, to rebuild the screen
 
 /** The core as a UI sees it: reachable only through messages. */
 export interface Core {

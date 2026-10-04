@@ -113,7 +113,7 @@ test("memory: remember appends one line, per scope, and shows up next session", 
   const root = await tempProject();
   const first = loadMemory(home, root);
   assert.equal(first.prompt, "");
-  assert.deepEqual(first.tools.map((tool) => tool.name), ["remember"]); // no skills, no skill tool
+  assert.deepEqual(first.tools.map((tool) => tool.name), ["remember", "recall"]); // no skills, no skill tool
 
   const remember = first.tools[0];
   await run(remember, { fact: "Deploys go out\non Fridays.", scope: "project" });

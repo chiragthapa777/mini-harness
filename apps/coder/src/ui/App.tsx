@@ -28,12 +28,14 @@ const TOOL_LABELS: Record<string, string> = {
   grep: "Grep",
   skill: "Skill",
   remember: "Remember",
+  recall: "Recall",
 };
 
 const HELP = [
   "/clear   start a new conversation",
   "/undo    restore the files the last turn changed",
   "/model   show the model, or switch: /model provider:model",
+  "/compact replace the conversation with a summary of it",
   "/quit    exit (or Ctrl+C twice)",
   "esc      interrupt the turn",
   "↑ ↓      earlier messages",
@@ -401,7 +403,7 @@ function inputText(input: unknown): string {
 
 function inputSummary(input: unknown): string {
   const fields = asFields(input);
-  const main = fields.command ?? fields.pattern ?? fields.path ?? fields.name ?? fields.fact;
+  const main = fields.command ?? fields.pattern ?? fields.path ?? fields.name ?? fields.fact ?? fields.query;
   const text = (typeof main === "string" ? main : (JSON.stringify(input) ?? "")).replace(/\s+/g, " ");
   return text.length > 100 ? `${text.slice(0, 100)}…` : text;
 }

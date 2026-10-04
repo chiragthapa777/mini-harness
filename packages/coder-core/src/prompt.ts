@@ -21,6 +21,13 @@ const RULES = [
   "- When the task is done, reply with a short summary of what changed, and no tool call.",
 ].join("\n");
 
+/** Appended as the last user message when the history is replaced by a summary. */
+export const COMPACT_PROMPT = [
+  "Summarize this conversation so the work can continue from the summary alone. Do not call tools.",
+  "Cover: what the user asked for, decisions made and why, files read or changed (with paths),",
+  "commands run and their outcome, and what is still left to do.",
+].join(" ");
+
 export interface Environment {
   root: string;
   platform: string;

@@ -382,8 +382,8 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
   - `session.ts` — `new Session(send, options)` takes the folder, model and mode, throws
     if they are not usable, and sends `session`. `receive(message)` handles `submit`,
     `abort`, `command` and `permission_answer`; one turn at a time. Commands: `/clear`,
-    `/undo` (restores the last turn's files; the model must re-read them), `/model`;
-    `/compact` not yet. Each answers with a `notice`. `stop()` aborts the turn and waits.
+    `/undo` (restores the last turn's files; the model must re-read them), `/model`,
+    `/compact`. Each answers with a `notice`. `stop()` aborts the turn and waits.
   - `loop.ts` — `runLoop`: stream the reply (tool_call blocks hidden from the screen),
     run each call (bad calls become error results), add results to the history, repeat
     until a reply has no calls. Limits: 100 model calls and 2M tokens per turn; tool
@@ -412,7 +412,19 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
     `~/.mini-coder/projects/<slug>/MEMORY.md`) and a skill list (`skills/<name>/SKILL.md`
     with a `description:` line; a project skill replaces a personal one of the same
     name). Tools: `skill(name)` returns the file, and exists only when there are skills;
-    `remember(fact, scope)` appends one line. No size cap or cleanup yet.
+    `remember(fact, scope)` appends one line; `recall(query)` (see `sessions.ts`). No size cap or cleanup yet.
+  - `sessions.ts` — the session log, `~/.mini-coder/projects/<slug>/sessions/<time>-<id>.jsonl`:
+    one JSON line per turn with `messages` (what a replay shows) and `history` (what the
+    turn added for the model); `/clear` and compaction write a `reset` line. A write that
+    fails is reported as a notice and the session goes on unsaved. `sessionFile(home,
+    root, resume)` names a new file or finds the latest. `recallTool` searches the
+    project's logs for turns containing every word of a query, newest first, 10 at most.
+  - Resume and compaction live in `session.ts`. A `logFile` that already has turns is
+    resumed: the history is rebuilt from it and one `replay` message is sent. Compaction
+    asks the model for a summary (`COMPACT_PROMPT` in `prompt.ts`) and replaces the
+    history with it: automatically before a turn that starts above
+    `limits.compactAtTokens` (120k), or on `/compact`, which runs as a turn of its own.
+    Never in the middle of a turn.
   - `checkpoints.ts` (per-turn file snapshots for `/undo`), `prompt.ts` (rules → tools →
     environment), `model.ts` (`provider:model`, default `openrouter:z-ai/glm-5.3-flash`).
 - **`packages/coder-tools`** — `read_file` (numbered lines, offset/limit, no binaries,
@@ -429,7 +441,7 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
   `~/.ssh`, `~/.mini-coder` or `.mini-coder/settings*.json`.
 - **`apps/coder`** — one command, one process. `src/main.ts` reads the flags, builds
   the core and hands it to one of the two UIs; a model or mode that cannot be used
-  exits 2.
+  exits 2. `--resume` continues the folder's most recent session.
   - `src/core.ts` — `startCore({ cwd, model?, mode? })` wires core + tools + `llm` (the
     only place they meet) and returns a `Core`. Messages the session sends before the
     UI sets its handler are kept and delivered first. It reads settings and memory from

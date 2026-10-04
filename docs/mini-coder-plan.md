@@ -36,7 +36,7 @@ Design: [architecture](mini-coder-architecture.md), [memory](mini-coder-memory.m
 | 4b | Single process: `core.ts` replaces `serve.ts` and `ui/core-process.ts`; `wire.ts` keeps only the types. **Done.** | `-p` and the Ink session run with no child process |
 | 5 | Permissions: rules, modes, bash splitting, deny list; `write_file`, `glob`, `grep`. **Done.** | table-driven rule tests pass |
 | 6 | Settings, `/model`; `AGENTS.md`, skills, `remember`. **Done.** Settings are one file in `coder-core`, not a `coder-config` package. | layers merge; deny wins; skills load on demand |
-| 7 | Episodic memory: session log, `resume`, summaries, `recall`; compaction | resume rebuilds by replay; long session compacts |
+| 7 | Episodic memory: session log, `--resume`, `recall`; compaction. **Done.** No session index or per-session summary: `recall` reads the logs. | resume rebuilds by replay; long session compacts |
 | 8 | MCP (official SDK) | MCP tool runs after approval |
 | 9 | Opt-in: OpenTelemetry, bash sandbox | off by default |
 
