@@ -1,4 +1,4 @@
-import type { CoreEvent, StopReason } from "@mini-agent/coder-protocol";
+import type { CoreMessage, StopReason } from "./wire.js";
 import { ToolCallTextFilter, parseToolCalls, renderToolResults } from "@mini-agent/core/protocol";
 import type { ChatClient, Msg } from "@mini-agent/llm";
 import type { Tool, ToolContext } from "./tool.js";
@@ -22,7 +22,7 @@ export interface LoopOptions {
   system: string;
   limits: Limits;
   signal: AbortSignal;
-  emit(event: CoreEvent): void;
+  emit(message: CoreMessage): void;
   /** Returns why the call may not run, or null when it may. */
   authorize(tool: Tool, input: unknown, callId: string): Promise<string | null>;
   nextCallId(): string;

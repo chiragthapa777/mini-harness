@@ -1,16 +1,15 @@
 import { parseArgs } from "node:util";
-import { PermissionMode } from "@mini-agent/coder-protocol";
-import { runServe } from "./serve.js";
+import { PERMISSION_MODES, type Core, type PermissionMode } from "@mini-agent/coder-core";
+import { startCore } from "./core.js";
 import { runHeadless } from "./ui/headless.js";
 
 /**
- * Entry point of the `mini-coder` command. One file, two roles: `serve` is
- * the core process; anything else is a UI that spawns it.
+ * Entry point of the `mini-coder` command: builds the core, then hands it to
+ * one of the two UIs. Everything runs in this process.
  */
 const USAGE = `usage:
   mini-coder [--model provider:model] [--mode …]     interactive session
-  mini-coder -p "<prompt>" [--model provider:model] [--mode ${PermissionMode.options.join("|")}]
-  mini-coder serve          (the core over stdio; UIs spawn this)`;
+  mini-coder -p "<prompt>" [--model provider:model] [--mode ${PERMISSION_MODES.join("|")}]`;
 
 function fail(message: string): never {
   console.error(message);
@@ -33,20 +32,24 @@ function readArgs() {
 }
 
 const { values, positionals } = readArgs();
+if (positionals.length > 0) fail(`mini-coder: unexpected argument "${positionals[0]}"\n${USAGE}`);
 
-if (positionals[0] === "serve") {
-  runServe();
-} else {
-  if (positionals.length > 0) fail(`mini-coder: unexpected argument "${positionals[0]}"\n${USAGE}`);
-  const mode = PermissionMode.optional().safeParse(values.mode);
-  if (!mode.success) fail(`mini-coder: unknown mode "${values.mode}"\n${USAGE}`);
-  const options = { model: values.model, mode: mode.data };
+const mode = values.mode as PermissionMode | undefined;
+if (mode !== undefined && !PERMISSION_MODES.includes(mode)) fail(`mini-coder: unknown mode "${mode}"\n${USAGE}`);
 
-  if (values.print !== undefined) {
-    process.exitCode = await runHeadless(values.print, options);
-  } else {
-    // Loaded on demand: the core and `-p` never need Ink or React.
-    const { runInteractive } = await import("./ui/interactive.js");
-    process.exitCode = await runInteractive(options);
+function start(): Core {
+  try {
+    return startCore({ cwd: process.cwd(), model: values.model, mode });
+  } catch (err) {
+    fail(`mini-coder: ${(err as Error).message}`);
   }
+}
+const core = start();
+
+if (values.print !== undefined) {
+  process.exitCode = await runHeadless(values.print, core);
+} else {
+  // Loaded on demand: `-p` never needs Ink or React.
+  const { runInteractive } = await import("./ui/interactive.js");
+  process.exitCode = await runInteractive(core);
 }

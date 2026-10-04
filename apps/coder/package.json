@@ -9,14 +9,12 @@
   "scripts": {
     "dev": "tsx --env-file=../../.env src/main.ts",
     "start": "node --env-file=../../.env dist/mini-coder.mjs",
-    "serve": "tsx src/main.ts serve",
     "build": "tsx build.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@mini-agent/coder-core": "workspace:*",
-    "@mini-agent/coder-protocol": "workspace:*",
     "@mini-agent/coder-tools": "workspace:*",
     "@mini-agent/ink-markdown": "workspace:*",
     "@mini-agent/llm": "workspace:*",

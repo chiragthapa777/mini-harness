@@ -1,8 +1,8 @@
-import type { CoreEvent } from "@mini-agent/coder-protocol";
+import type { CoreMessage } from "@mini-agent/coder-core/wire";
 
 /**
- * View state is a fold over what happened: the core's events plus the two
- * things the UI adds itself (what the user sent, and notices). Pure, so the
+ * View state is a fold over what happened: the core's messages plus what the
+ * UI adds itself (what the user sent). Pure, so the
  * transcript can be tested without a terminal.
  */
 
@@ -17,14 +17,13 @@ export interface ViewState {
   items: Item[];
   running: boolean;
   thinking: boolean;
+  /** Model and mode, once the core has said them. */
+  session?: { model: string; mode: string };
   /** Tokens of the latest model call. */
   usage?: { inputTokens: number; outputTokens: number };
 }
 
-export type Action =
-  | CoreEvent
-  | { type: "user"; text: string }
-  | { type: "notice"; text: string; isError?: boolean };
+export type Action = CoreMessage | { type: "user"; text: string };
 
 export const initialState: ViewState = { items: [], running: false, thinking: false };
 
@@ -46,6 +45,12 @@ export function fold(state: ViewState, action: Action): ViewState {
 
     case "notice":
       return add({ kind: "notice", text: action.text, isError: action.isError ?? false });
+
+    case "session":
+      return { ...state, session: { model: action.model, mode: action.mode } };
+
+    case "permission_request":
+      return state; // shown by App as a prompt, not in the transcript
 
     case "turn_start":
       return { ...state, running: true };

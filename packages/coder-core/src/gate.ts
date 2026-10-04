@@ -1,4 +1,4 @@
-import type { PermissionMode } from "@mini-agent/coder-protocol";
+import type { PermissionMode } from "./wire.js";
 import type { Tool } from "./tool.js";
 
 export type Verdict =

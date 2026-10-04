@@ -374,18 +374,16 @@ per-case and a long-lived server never needs a restart to pick up a changed var.
 The local coding agent. Design in [`mini-coder-architecture.md`](mini-coder-architecture.md);
 none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
 
-- **`packages/coder-protocol`** — the UI ↔ core contract. `messages.ts`: every
-  message (zod schemas for what gets validated, plain types for the rest) and
-  `PROTOCOL_VERSION`. `connection.ts`: JSON-RPC 2.0, one JSON object per line, either
-  side can send requests; an aborted request stops waiting, closing rejects what is
-  pending. `endpoints.ts`: `CoreEndpoint` (validates the UI's params, refuses another
-  protocol version) and `UiEndpoint` (`initialize`, `submit`, `abort`, `command`,
-  `shutdown`; skips unknown events). `memoryConnections()` for tests.
 - **`packages/coder-core`** — the controller and the loop, no UI code.
-  - `session.ts` — `Session` answers the UI and runs one turn at a time. Commands:
-    `/clear`, `/undo` (restores the last turn's files; the model must re-read them),
-    `/model`; `/compact` not yet. `abort` and `shutdown` abort the turn; the UI's pipe
-    closing counts as shutdown; `onShutdown` is called once.
+  - `wire.ts` — everything the UI and the core say to each other, also exported as
+    `@mini-agent/coder-core/wire`: the `UiMessage` and `CoreMessage` types, and `Core`
+    (`send`, `onMessage`, `stop`), the core as a UI sees it. Plain objects passed to
+    functions, every message one-way: no ids, no replies, no validation.
+  - `session.ts` — `new Session(send, options)` takes the folder, model and mode, throws
+    if they are not usable, and sends `session`. `receive(message)` handles `submit`,
+    `abort`, `command` and `permission_answer`; one turn at a time. Commands: `/clear`,
+    `/undo` (restores the last turn's files; the model must re-read them), `/model`;
+    `/compact` not yet. Each answers with a `notice`. `stop()` aborts the turn and waits.
   - `loop.ts` — `runLoop`: stream the reply (tool_call blocks hidden from the screen),
     run each call (bad calls become error results), add results to the history, repeat
     until a reply has no calls. Limits: 100 model calls and 2M tokens per turn; tool
@@ -401,19 +399,18 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
   on timeout or Esc, `cd` carried over via file descriptor 3, stdin closed, background
   jobs do not hang it). `paths.ts`: realpath, inside the project, never `.env*` (except
   `.env.example`), `~/.ssh`, `~/.mini-coder` or `.mini-coder/settings*.json`.
-- **`apps/coder`** — one command, two roles (`src/main.ts`): `mini-coder serve` is the
-  core, anything else is a UI that spawns it.
-  - `src/serve.ts` wires core + tools + `llm` (the only place they meet), runs on
-    stdin/stdout, logs to stderr, ignores SIGINT when spawned by a UI (Ctrl+C is the UI's call; run by hand in a terminal it prints a hint and Ctrl+C quits).
-  - `src/ui/core-process.ts` — `startCore()` spawns the same command as `serve`, with
-    stderr appended to `~/.mini-coder/logs/<date>.log`. `stop()` sends `shutdown` and
-    kills the core after 2 seconds; `crashed` rejects if the core exits on its own. The
-    UI dying closes the core's stdin, which the core treats as shutdown.
+- **`apps/coder`** — one command, one process. `src/main.ts` reads the flags, builds
+  the core and hands it to one of the two UIs; a model or mode that cannot be used
+  exits 2.
+  - `src/core.ts` — `startCore({ cwd, model?, mode? })` wires core + tools + `llm` (the
+    only place they meet) and returns a `Core`. Messages the session sends before the
+    UI sets its handler are kept and delivered first.
   - `src/ui/headless.ts` — `mini-coder -p "<prompt>" [--model provider:model] [--mode …]`:
     one turn, reply text on stdout, every permission prompt denied. Exit 0 on
-    `end_turn`, 1 on any other stop or a core crash, 130 on Ctrl+C, 2 on bad arguments.
-  - `src/ui/fold.ts` — view state is `fold(state, action)` over the core's events plus
-    what the user sent and notices: an append-only list of user, assistant, tool and
+    `end_turn`, 1 on any other stop, 130 on Ctrl+C (the turn is stopped first), 2 on bad
+    arguments.
+  - `src/ui/fold.ts` — view state is `fold(state, action)` over the core's messages plus
+    what the user sent: an append-only list of user, assistant, tool and
     notice items. Pure; sending a message marks the turn running at once.
   - `src/ui/App.tsx`, `src/ui/interactive.tsx` — `mini-coder` with no prompt: the Ink
     session (needs a terminal), laid out like Claude Code. A welcome box, then the
@@ -435,10 +432,9 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
   - `build.ts` — `pnpm --filter @mini-agent/coder build` bundles everything into
     `dist/mini-coder.mjs` (esbuild, one file, Node 22+), the package's `bin`. The API
     key comes from the environment (`OPENROUTER_API_KEY`, …) until phase 6.
-  - Tests: `test/serve.test.ts` (the core process alone) and `test/headless.test.ts`
-    (`-p`, and either side dying ending both) run the real processes against a local
-    fake of OpenRouter. `test/ui.test.ts` covers the fold, the input line, and fails if `ui/`
-    imports anything but `coder-protocol`, `ink-markdown`, Ink, React or Node. The Ink view has no automated
+  - Tests: `test/headless.test.ts` runs `-p` as a real process against a local fake of
+    OpenRouter. `test/ui.test.ts` covers the fold, the input line, and fails if `ui/`
+    imports anything but `coder-core/wire`, `ink-markdown`, Ink, React or Node. The Ink view has no automated
     test.
 
 ### 3.11 `packages/ink-markdown`

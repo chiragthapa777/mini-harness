@@ -1,11 +1,11 @@
 import { mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CoreEndpoint, UiEndpoint, memoryConnections, type CoreEvent, type PermissionParams } from "@mini-agent/coder-protocol";
 import type { ChatClient, Msg } from "@mini-agent/llm";
 import { z } from "zod";
 import { Session, type SessionOptions } from "../src/session.js";
 import type { Tool } from "../src/tool.js";
+import type { Command, CoreMessage, Decision } from "../src/wire.js";
 
 /**
  * A scripted model reply. A string is streamed in small chunks. `hang`
@@ -69,61 +69,73 @@ export const shellTool: Tool = {
   },
 };
 
+type PermissionRequest = Extract<CoreMessage, { type: "permission_request" }>;
+type Notice = Extract<CoreMessage, { type: "notice" }>;
+
 /**
- * A real Session behind real endpoints, driven like a UI would.
+ * A real Session, driven like a UI would: messages in through `receive`,
+ * everything it sends collected in `events`.
  * `answers` reply to permission requests in order ("never" leaves one unanswered).
  */
 export async function harness(options: {
   replies: Reply[];
   tools?: Tool[];
-  answers?: ("allow" | "deny" | "always" | "never")[];
+  answers?: (Decision | "never")[];
   limits?: SessionOptions["limits"];
   cwd?: string;
-  mode?: "default" | "accept-edits" | "plan" | "bypass";
+  mode?: SessionOptions["mode"];
   model?: string;
 }) {
-  const wires = memoryConnections();
-  const ui = new UiEndpoint(wires.ui);
   const model = fakeModel(options.replies);
-  const events: CoreEvent[] = [];
-  const asked: PermissionParams[] = [];
+  const events: CoreMessage[] = [];
+  const asked: Omit<PermissionRequest, "type">[] = [];
   const answers = [...(options.answers ?? [])];
-  let shutdowns = 0;
-
-  const session = new Session(new CoreEndpoint(wires.core), {
-    tools: options.tools ?? [echoTool],
-    createModel: () => model.client,
-    limits: options.limits,
-    onShutdown: () => shutdowns++,
-  });
-
   let onTurnEnd = () => {};
-  ui.onEvent((event) => {
-    events.push(event);
-    if (event.type === "turn_end") onTurnEnd();
-  });
-  ui.onPermission((params) => {
-    asked.push(params);
-    const answer = answers.shift() ?? "deny";
-    return answer === "never" ? new Promise(() => {}) : { decision: answer };
-  });
+  let onNotice = (_: Notice) => {};
 
   const cwd = options.cwd ?? (await tempProject());
-  const init = await ui.initialize({ cwd, mode: options.mode, model: options.model });
+  const session: Session = new Session(
+    (message) => {
+      events.push(message);
+      if (message.type === "turn_end") onTurnEnd();
+      if (message.type === "notice") onNotice(message);
+      if (message.type === "permission_request") {
+        const { type, ...request } = message;
+        asked.push(request);
+        const decision = answers.shift() ?? "deny";
+        if (decision !== "never") session.receive({ type: "permission_answer", callId: message.callId, decision });
+      }
+    },
+    {
+      cwd,
+      tools: options.tools ?? [echoTool],
+      createModel: () => model.client,
+      limits: options.limits,
+      mode: options.mode,
+      model: options.model,
+    },
+  );
 
-  /** Submits and resolves with the turn_end event. */
+  /** Submits and resolves with the turn_end message. */
   async function turn(text: string) {
     const ended = new Promise<void>((resolve) => (onTurnEnd = resolve));
-    await ui.submit(text);
+    session.receive({ type: "submit", text });
     await ended;
     return events.at(-1)!;
   }
 
-  return { ui, session, model, events, asked, cwd, init, turn, wires, shutdowns: () => shutdowns };
+  /** Runs a slash command and resolves with the notice it answers with. */
+  function command(name: Command, arg?: string) {
+    const noticed = new Promise<Notice>((resolve) => (onNotice = resolve));
+    session.receive({ type: "command", name, arg });
+    return noticed;
+  }
+
+  return { session, model, events, asked, cwd, turn, command };
 }
 
 /** Events as short strings, without text deltas and usage. */
-export function summary(events: CoreEvent[]): string[] {
+export function summary(events: CoreMessage[]): string[] {
   const lines: string[] = [];
   for (const e of events) {
     if (e.type === "tool_start") lines.push(`start ${e.name}`);
@@ -133,7 +145,7 @@ export function summary(events: CoreEvent[]): string[] {
   return lines;
 }
 
-export function shownText(events: CoreEvent[]): string {
+export function shownText(events: CoreMessage[]): string {
   return events.map((e) => (e.type === "text_delta" ? e.text : "")).join("");
 }
 

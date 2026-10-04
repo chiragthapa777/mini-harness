@@ -1,18 +1,12 @@
 import { Box, Static, Text, useApp, useInput } from "ink";
 import { homedir } from "node:os";
 import { useEffect, useReducer, useRef, useState } from "react";
-import {
-  CommandParams,
-  type InitializeResult,
-  type PermissionParams,
-  type PermissionResult,
-  type UiEndpoint,
-} from "@mini-agent/coder-protocol";
+import { COMMANDS, type Command, type Core, type CoreMessage, type Decision } from "@mini-agent/coder-core/wire";
 import { Markdown } from "@mini-agent/ink-markdown";
 import { fold, initialState, type Item } from "./fold.js";
 import { editInput, emptyInput } from "./input.js";
 
-type Decision = PermissionResult["decision"];
+type PermissionParams = Extract<CoreMessage, { type: "permission_request" }>;
 type ToolItem = Extract<Item, { kind: "tool" }>;
 
 const ACCENT = "cyan";
@@ -40,11 +34,10 @@ interface Asking {
   params: PermissionParams;
   shownAt: number;
   choice: number;
-  answer(decision: Decision): void;
 }
 
 /** The interactive session: transcript, tool cards, permission prompt, input. */
-export function App({ ui, session, cwd }: { ui: UiEndpoint; session: InitializeResult; cwd: string }) {
+export function App({ core, cwd }: { core: Core; cwd: string }) {
   const { exit } = useApp();
   const [state, dispatch] = useReducer(fold, initialState);
   const [input, setInput] = useState(emptyInput);
@@ -52,27 +45,20 @@ export function App({ ui, session, cwd }: { ui: UiEndpoint; session: InitializeR
   const [sentAt, setSentAt] = useState(0); // sent.length means "not browsing"
   const [queue, setQueue] = useState<string[]>([]);
   const [asking, setAsking] = useState<Asking>();
-  const [model, setModel] = useState(session.model);
   const [quitArmed, setQuitArmed] = useState(false);
   const turnStartedAt = useRef(0);
 
   useEffect(() => {
-    ui.onEvent(dispatch);
-    ui.onPermission(
-      (params) =>
-        new Promise<PermissionResult>((resolve) =>
-          setAsking({
-            params,
-            shownAt: Date.now(),
-            choice: 0,
-            answer(decision) {
-              setAsking(undefined);
-              resolve({ decision });
-            },
-          }),
-        ),
-    );
-  }, [ui]);
+    core.onMessage((message) => {
+      if (message.type === "permission_request") setAsking({ params: message, shownAt: Date.now(), choice: 0 });
+      dispatch(message);
+    });
+  }, [core]);
+
+  function answer(asking: Asking, decision: Decision) {
+    setAsking(undefined);
+    core.send({ type: "permission_answer", callId: asking.params.callId, decision });
+  }
 
   // One turn at a time: whatever was typed goes through the queue, and the
   // next message leaves it only when no turn is running.
@@ -82,27 +68,19 @@ export function App({ ui, session, cwd }: { ui: UiEndpoint; session: InitializeR
     setQueue(queue.slice(1));
     turnStartedAt.current = Date.now();
     dispatch({ type: "user", text: next });
-    ui.submit(next).catch((err: Error) => dispatch({ type: "turn_end", stopReason: "error", error: err.message }));
-  }, [state.running, queue, ui]);
+    core.send({ type: "submit", text: next });
+  }, [state.running, queue, core]);
 
   function runCommand(line: string) {
     const [word = "", ...rest] = line.slice(1).split(/\s+/);
     if (word === "quit" || word === "exit") return exit();
     if (word === "help") return dispatch({ type: "notice", text: HELP });
 
-    const name = CommandParams.shape.name.safeParse(word);
-    if (!name.success) {
+    if (!(COMMANDS as readonly string[]).includes(word)) {
       return dispatch({ type: "notice", text: `unknown command /${word}. /help lists the commands`, isError: true });
     }
-
-    const arg = rest.join(" ") || undefined;
-    ui.command(name.data, arg).then(
-      ({ message }) => {
-        if (name.data === "model" && arg) setModel(arg);
-        dispatch({ type: "notice", text: message });
-      },
-      (err: Error) => dispatch({ type: "notice", text: err.message, isError: true }),
-    );
+    // The core answers with a notice.
+    core.send({ type: "command", name: word as Command, arg: rest.join(" ") || undefined });
   }
 
   useInput((value, key) => {
@@ -117,8 +95,8 @@ export function App({ ui, session, cwd }: { ui: UiEndpoint; session: InitializeR
     if (key.escape) {
       if (!state.running) return;
       setQueue([]);
-      asking?.answer("deny");
-      ui.abort().catch(() => {});
+      if (asking) answer(asking, "deny");
+      core.send({ type: "abort" });
       return;
     }
 
@@ -131,7 +109,7 @@ export function App({ ui, session, cwd }: { ui: UiEndpoint; session: InitializeR
         return setAsking({ ...asking, choice });
       }
       const picked = key.return ? options[asking.choice] : options[Number(value) - 1];
-      if (picked) asking.answer(picked.decision);
+      if (picked) answer(asking, picked.decision);
       return;
     }
 
@@ -208,7 +186,7 @@ export function App({ ui, session, cwd }: { ui: UiEndpoint; session: InitializeR
             <Box justifyContent="space-between" paddingX={2}>
               <Text dimColor>{quitArmed ? "Press Ctrl+C again to exit" : "/help for commands"}</Text>
               <Text dimColor>
-                {model} · {session.mode}
+                {state.session?.model} · {state.session?.mode}
               </Text>
             </Box>
           </>

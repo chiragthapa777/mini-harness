@@ -10,8 +10,8 @@ const uiDir = join(dirname(fileURLToPath(import.meta.url)), "../src/ui");
 
 const run = (actions: Action[]) => actions.reduce(fold, initialState);
 
-test("ui/ imports only the protocol, never the core or the tools", async () => {
-  const allowed = /^(node:|\.\/|ink$|react$|@mini-agent\/(coder-protocol|ink-markdown)$)/;
+test("ui/ imports only the wire messages, never the rest of the core or the tools", async () => {
+  const allowed = /^(node:|\.\/|ink$|react$|@mini-agent\/(coder-core\/wire|ink-markdown)$)/;
 
   for (const file of await readdir(uiDir)) {
     const source = await readFile(join(uiDir, file), "utf8");

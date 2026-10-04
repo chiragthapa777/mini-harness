@@ -1,54 +1,37 @@
-import type { CoreEvent, PermissionMode } from "@mini-agent/coder-protocol";
-import { startCore } from "./core-process.js";
+import type { Core, CoreMessage } from "@mini-agent/coder-core/wire";
 
-export interface HeadlessOptions {
-  model?: string;
-  mode?: PermissionMode;
-}
-
-type TurnEnd = Extract<CoreEvent, { type: "turn_end" }>;
+type TurnEnd = Extract<CoreMessage, { type: "turn_end" }>;
 
 /**
  * `mini-coder -p "…"`: one turn, the reply on stdout, then exit. Nobody is
  * there to answer a permission prompt, so every one is denied; `--mode`
  * widens what the core allows without asking. Returns the exit code.
  */
-export async function runHeadless(prompt: string, options: HeadlessOptions): Promise<number> {
-  const core = startCore();
-
-  // Ctrl+C reaches the core too, which ignores it: ending is this side's call.
+export async function runHeadless(prompt: string, core: Core): Promise<number> {
+  // Stop the turn first, so a running bash command is killed with us.
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => void core.stop().then(() => process.exit(signal === "SIGINT" ? 130 : 143)));
   }
 
   let text = "";
   const ended = new Promise<TurnEnd>((resolve) =>
-    core.ui.onEvent((event) => {
-      if (event.type === "text_delta") {
-        text += event.text;
-        process.stdout.write(event.text);
+    core.onMessage((message) => {
+      if (message.type === "text_delta") {
+        text += message.text;
+        process.stdout.write(message.text);
       }
-      if (event.type === "turn_end") resolve(event);
+      if (message.type === "permission_request") {
+        core.send({ type: "permission_answer", callId: message.callId, decision: "deny" });
+      }
+      if (message.type === "turn_end") resolve(message);
     }),
   );
-  core.ui.onPermission(() => ({ decision: "deny" }));
 
-  try {
-    const run = async () => {
-      await core.ui.initialize({ cwd: process.cwd(), ...options });
-      await core.ui.submit(prompt);
-      return ended;
-    };
-    const end = await Promise.race([run(), core.crashed]);
+  core.send({ type: "submit", text: prompt });
+  const end = await ended;
 
-    if (text && !text.endsWith("\n")) process.stdout.write("\n");
-    if (end.stopReason === "end_turn") return 0;
-    console.error(`mini-coder: turn stopped: ${end.error ?? end.stopReason}`);
-    return 1;
-  } catch (err) {
-    console.error(`mini-coder: ${(err as Error).message}`);
-    return 1;
-  } finally {
-    await core.stop();
-  }
+  if (text && !text.endsWith("\n")) process.stdout.write("\n");
+  if (end.stopReason === "end_turn") return 0;
+  console.error(`mini-coder: turn stopped: ${end.error ?? end.stopReason}`);
+  return 1;
 }

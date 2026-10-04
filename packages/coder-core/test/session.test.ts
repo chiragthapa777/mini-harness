@@ -79,7 +79,7 @@ test("Esc while streaming: the turn ends 'aborted' and keeps what was shown", as
   const h = await harness({ replies: [{ hang: "Let me think about" }, "answer"] });
   const ended = h.turn("question");
   while (!h.events.some((e) => e.type === "text_delta")) await tick();
-  await h.ui.abort();
+  h.session.receive({ type: "abort" });
   await ended;
 
   assert.deepEqual(summary(h.events), ["turn_end aborted"]);
@@ -97,7 +97,7 @@ test("Esc during a permission prompt: nothing runs", async () => {
 
   const ended = h.turn("ship it");
   while (h.asked.length === 0) await tick();
-  await h.ui.abort();
+  h.session.receive({ type: "abort" });
   await ended;
 
   assert.equal(ran, false);
@@ -106,11 +106,12 @@ test("Esc during a permission prompt: nothing runs", async () => {
 
 test("one turn at a time", async () => {
   const h = await harness({ replies: [{ hang: "working" }] });
-  await h.ui.submit("first");
-  await assert.rejects(h.ui.submit("second"), /a turn is already running/);
-  await assert.rejects(h.ui.command("clear"), /cannot run during a turn/);
-  await h.ui.abort();
-  await h.session.idle();
+  h.session.receive({ type: "submit", text: "first" });
+  h.session.receive({ type: "submit", text: "second" });
+  assert.deepEqual(h.events.at(-1), { type: "notice", text: "a turn is already running", isError: true });
+  assert.deepEqual(await h.command("clear"), { type: "notice", text: "/clear cannot run during a turn", isError: true });
+  await h.session.stop();
+  assert.deepEqual(summary(h.events), ["turn_end aborted"]);
 });
 
 test("the iteration cap and the token budget stop a runaway turn", async () => {
@@ -153,53 +154,31 @@ test("/undo restores the files changed in the last turn", async () => {
   await h.turn("edit");
   assert.equal(await readFile(join(cwd, "a.txt"), "utf8"), "changed");
 
-  assert.deepEqual(await h.ui.command("undo"), { message: "restored a.txt, new.txt. Changes made through bash are not undone." });
+  assert.equal((await h.command("undo")).text, "restored a.txt, new.txt. Changes made through bash are not undone.");
   assert.equal(await readFile(join(cwd, "a.txt"), "utf8"), "original");
   await assert.rejects(readFile(join(cwd, "new.txt")), { code: "ENOENT" });
-  assert.deepEqual(await h.ui.command("undo"), { message: "nothing to undo" });
+  assert.equal((await h.command("undo")).text, "nothing to undo");
 });
 
 test("/clear and /model", async () => {
   const h = await harness({ replies: ["one", "two"] });
   await h.turn("first");
-  await h.ui.command("clear");
+  await h.command("clear");
   await h.turn("second");
   assert.deepEqual(h.model.seen[1]!.map((m) => m.role), ["system", "user"]);
 
-  assert.deepEqual(await h.ui.command("model"), { message: "model: openrouter:z-ai/glm-5.3-flash" });
-  assert.deepEqual(await h.ui.command("model", "anthropic:claude-opus-5"), { message: "model set to anthropic:claude-opus-5" });
-  await assert.rejects(h.ui.command("model", "nonsense"), /provider:model/);
+  assert.equal((await h.command("model")).text, "model: openrouter:z-ai/glm-5.3-flash");
+  assert.equal((await h.command("model", "anthropic:claude-opus-5")).text, "model set to anthropic:claude-opus-5");
+  assert.deepEqual(h.events.at(-2), { type: "session", model: "anthropic:claude-opus-5", mode: "default" });
+  const refused = await h.command("model", "nonsense");
+  assert.match(refused.text, /provider:model/);
+  assert.equal(refused.isError, true);
 });
 
-test("initialize checks the folder and the model", async () => {
+test("a session checks the folder and the model, then says what it runs with", async () => {
   await assert.rejects(harness({ replies: [], cwd: "/not/a/folder" }), /not a directory/);
   await assert.rejects(harness({ replies: [], model: "acme:gpt" }), /unknown provider "acme"/);
 
   const h = await harness({ replies: [], model: "google:gemini-2.5-pro", mode: "accept-edits" });
-  assert.equal(h.init.model, "google:gemini-2.5-pro");
-  assert.equal(h.init.mode, "accept-edits");
-  await assert.rejects(h.ui.initialize({ cwd: h.cwd }), /already initialized/);
-});
-
-test("shutdown aborts the turn and exits exactly once", async () => {
-  const h = await harness({ replies: [{ hang: "long task" }] });
-  const ended = h.turn("go");
-  await h.ui.shutdown();
-  await ended;
-  await tick();
-  assert.equal(h.shutdowns(), 1);
-  assert.deepEqual(summary(h.events), ["turn_end aborted"]);
-
-  h.wires.close(); // the UI then closes the pipe
-  await tick();
-  assert.equal(h.shutdowns(), 1);
-});
-
-test("the UI going away counts as shutdown", async () => {
-  const h = await harness({ replies: [{ hang: "long task" }] });
-  await h.ui.submit("go");
-  h.wires.close();
-  while (h.shutdowns() === 0) await tick(); // the close event arrives asynchronously
-  assert.deepEqual(summary(h.events), []); // the UI was gone before turn_end
-  assert.equal(h.shutdowns(), 1);
+  assert.deepEqual(h.events, [{ type: "session", model: "google:gemini-2.5-pro", mode: "accept-edits" }]);
 });

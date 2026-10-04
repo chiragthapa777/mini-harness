@@ -1,54 +1,53 @@
 # mini-coder — architecture
 
-How the UI and core split and talk. Only what phases 1–4 need.
+How the UI and the core split and talk. Only what phases 1–4 need.
 
 ## Shape
 
-One command, two processes. The UI owns the terminal and spawns the core as its child, speaking JSON-RPC over stdio. Ink is the first UI; anything that can spawn a process can replace it.
+One command, one process. The UI owns the terminal and calls the core as an object in the same program. There is no child process, no pipe and no JSON on the way.
 
 ```
 $ mini-coder
-┌───────────────────────────┐  spawn: node mini-coder.mjs serve
-│ UI process                │─────────────────────────────────┐
-│ apps/coder/src/ui         │                                 ▼
-│  Ink views                │  stdin  ── requests ──►  ┌────────────────────────┐
-│  view state = fold(events)│                          │ core process           │
-│                           │  stdout ◄── events ────  │ apps/coder/src/serve   │
-│                           │         ◄── permission?  │  Session (controller)  │
-│                           │         ── decision ──►  │  loop → llm, tools     │
-└───────────────────────────┘                          │  stderr → log file     │
-                                                       └────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ mini-coder process                                               │
+│                                                                  │
+│  UI: apps/coder/src/ui          core: packages/coder-core        │
+│  ┌─────────────────────┐        ┌──────────────────────────┐     │
+│  │ Ink views, or -p    │ ─────► │ session.receive(message) │     │
+│  │ state = fold(...)   │ ◄───── │ send(message)            │     │
+│  └─────────────────────┘        │ loop → llm, tools        │     │
+│                                 └──────────────────────────┘     │
+│  apps/coder/src/core.ts builds the Session and hands it to a UI  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-Ink uses the child process too: one transport, exercised by every run.
+The UI and the core still only exchange messages. A message is a plain object passed to a function, not a line on a pipe.
 
 ## Packages
 
 | Package | Contains | May import |
 |---|---|---|
-| `coder-protocol` | message schemas (zod), `PROTOCOL_VERSION`, JSON-RPC `Connection` | zod |
-| `coder-core` | `Session`, loop, permission gate, memory | protocol, `llm`, `core/protocol` |
+| `coder-core` | `Session`, loop, permission gate, memory; `wire.ts`: the message types | `llm`, `core/protocol` |
 | `coder-tools` | `read_file`, `edit_file`, `bash`, … | `coder-core` types |
-| `apps/coder` | `main.ts`, `ui/`, `serve.ts` | `ui/`: protocol and `ink-markdown` only |
+| `apps/coder` | `main.ts`, `core.ts`, `ui/` | `ui/`: `coder-core/wire` and `ink-markdown` only |
 
-A test fails if `ui/` imports `coder-core` or `coder-tools`.
+`core.ts` is the one file that imports `coder-core`, `coder-tools` and `llm` together. A test fails if `ui/` imports the rest of `coder-core`, or `coder-tools`: the UI gets its core as an argument.
 
-## Protocol
+## Messages
 
-JSON-RPC 2.0, one JSON object per line.
-
-| Direction | Method | Params → result |
-|---|---|---|
-| UI → core | `initialize` | `protocolVersion, cwd, model?, mode?, resume?` → `sessionId, model` |
-| UI → core | `submit` | `text` → `{}`; the turn runs in the background |
-| UI → core | `abort` | → `{}` |
-| UI → core | `command` | `clear`, `compact`, `undo` or `model` → `message` |
-| UI → core | `shutdown` | → `{}`, then the core exits |
-| core → UI | `event` (notification) | one `CoreEvent` |
-| core → UI | `permission` (request) | `tool, input, reason` → `allow`, `deny` or `always` |
+Plain objects. Every message is one-way: there are no requests, replies or ids. The types are all of `packages/coder-core/src/wire.ts`.
 
 ```ts
-type CoreEvent =
+// UI → core: session.receive(message)
+type UiMessage =
+  | { type: "submit"; text: string }
+  | { type: "abort" }
+  | { type: "command"; name: "clear" | "compact" | "undo" | "model"; arg?: string }
+  | { type: "permission_answer"; callId: string; decision: "allow" | "deny" | "always" };
+
+// core → UI: the send function given to the Session
+type CoreMessage =
+  | { type: "session"; model: string; mode: PermissionMode }
   | { type: "turn_start" }
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }
@@ -56,64 +55,74 @@ type CoreEvent =
   | { type: "tool_output"; callId: string; chunk: string }
   | { type: "tool_end"; callId: string; output: string; isError: boolean }
   | { type: "usage"; inputTokens: number; outputTokens: number }
-  | { type: "turn_end"; stopReason: "end_turn" | "aborted" | "max_iterations" | "token_budget" | "length" | "error"; error?: string };
+  | { type: "turn_end"; stopReason: "end_turn" | "aborted" | "max_iterations" | "token_budget" | "length" | "error"; error?: string }
+  | { type: "permission_request"; callId: string; tool: string; input: unknown; reason: string }
+  | { type: "notice"; text: string; isError?: boolean };
 ```
 
 Rules:
 
-- **Plain data.** The UI folds events into view state.
-- **Unknown events are ignored.** Adding is fine; renaming or removing bumps `PROTOCOL_VERSION`, and `initialize` rejects a mismatch.
-- **Permission is a core → UI request.** The JSON-RPC `id` pairs question and answer; the loop awaits it. `abort` resolves it as deny. `always` allows that call for the session.
+- **Plain data, not validated.** Both ends are the same program, type-checked together. The UI folds the core's messages into view state.
+- **No handshake.** `main.ts` checks the model and mode and passes them, with the current folder, to `startCore`. The core says `session` once it is up, and again when `/model` changes it.
+- **Delivery is a function call.** `send` runs the UI's handler before it returns, so a handler must not throw and must not do slow work.
+- **Permission is two messages.** The core sends `permission_request` and the loop waits for the `permission_answer` with the same `callId`. `abort` counts as deny. `always` allows that call for the session.
+- **A command answers with a `notice`**, as does a `submit` sent while a turn runs.
 - **One turn at a time.** The UI queues input typed mid-turn.
-- **`resume`** replays saved events before `initialize` replies; the UI rebuilds through the same fold.
 
 ## One turn
 
 ```
 UI                         core Session                 llm / tools
 │── submit{text} ────────►│
-│◄── {} ──────────────────│── stream(history, signal) ──►│
-│◄── event turn_start ────│◄── text deltas ──────────────│
-│◄── event text_delta … ──│   parse tool_call → edit_file
+│                         │── stream(history, signal) ──►│
+│◄── turn_start ──────────│◄── text deltas ──────────────│
+│◄── text_delta … ────────│   parse tool_call → edit_file
 │                         │── gate.check ──► ask
-│◄── permission{…} ───────│   (loop waits)
-│── {decision: allow} ───►│── run(input, signal) ───────►│
-│◄── event tool_start ────│◄── output chunks ────────────│
-│◄── event tool_output … ─│
-│◄── event tool_end ──────│   append result, next iteration
-│◄── event turn_end ──────│   no tool calls → done
+│◄── permission_request ──│   (loop waits)
+│── permission_answer ───►│── run(input, signal) ───────►│
+│◄── tool_start ──────────│◄── output chunks ────────────│
+│◄── tool_output … ───────│
+│◄── tool_end ────────────│   append result, next iteration
+│◄── turn_end ────────────│   no tool calls → done
 ```
 
 ## Lifecycle
 
-**Start.** `main.ts` spawns `serve`, sends `initialize`, renders on reply. Core stderr goes to `~/.mini-coder/logs/`, never Ink's terminal.
+**Start.** `main.ts` calls `startCore({ cwd, model, mode })`, which builds the `Session` and returns `{ send, onMessage, stop }`. Messages sent before the UI registers its handler, such as the first `session`, are kept and delivered when it does.
 
-**Stop.** Every path ends both:
-
-1. `/quit` or Ctrl+C twice → `shutdown`. The core aborts the turn, kills bash process groups, flushes the log, exits. After 2 seconds the UI kills it.
-2. UI crashes → core stdin closes → treated as `shutdown`.
-3. Core crashes → the UI shows the error, exits non-zero.
+**Stop.** `/quit` or Ctrl+C twice → `await core.stop()`, which aborts the turn and kills bash process groups, then the process exits. There is nothing to kill and no grace timer.
 
 **Esc** → `abort`. The turn's `AbortController` stops the LLM stream and bash; `turn_end` reports `aborted`.
 
+## What one process changes
+
+An earlier version ran the core as a child process. What that did, and what does it now:
+
+- Terminal ownership. Ink draws on stdout, so nothing else may write there. Ink patches `console.*` and prints that output above its own drawing. Bash output never reaches the terminal: the tool reads it through pipes. There is no log file.
+- Ctrl+C. Ink reads keys in raw mode, so Ctrl+C is a key press, not a signal, and bash runs in its own process group. In `-p` a SIGINT handler calls `core.stop()` and exits 130.
+- Crashes. An uncaught error in the core ends the whole program. Ink restores the terminal on any exit; Node prints the error.
+- A blocked event loop freezes the screen. Core code must stay asynchronous: no sync file reads or long loops in a turn.
+
+What is given up: a UI written in another language, and a UI that survives a core crash. Getting either back means putting the pipe back, which is JSON lines over the child's stdin and stdout.
+
 ## Headless
 
-`mini-coder -p "…"` is a second UI: prints `text_delta`, denies every permission, exits on `turn_end`. `--mode` goes in `initialize`, so the gate decides what is widened.
+`mini-coder -p "…"` is a second UI over the same `startCore`: prints `text_delta`, denies every permission, exits on `turn_end`. `--mode` goes to `startCore`, so the gate decides what is widened.
 
 ## Inside the core
 
-`Session` depends only on interfaces, wired in `serve.ts`:
+`Session` depends only on interfaces, wired in `core.ts`:
 
 - `ChatClient` (`packages/llm`)
 - `Tool { name, schema, run(input, { signal, onOutput }) }`
 - `PermissionGate.check(call) → allow | deny | ask`
 - `Memory`: skills, `AGENTS.md`, facts, session log ([mini-coder-memory.md](mini-coder-memory.md))
 
-Tests drive `Session` through a `Connection` over in-memory streams with a fake `ChatClient`: the real code path.
+Tests call `Session.receive` and collect what it sends, with a fake `ChatClient`: the real code path, no streams.
 
 ## Not now
 
-- In-process transport, sockets, several sessions per process.
+- A separate core process, sockets, several sessions per process.
 - State snapshots (resume replays events).
 - JSON Schema and Go codegen, until a Go UI exists.
 - OpenTelemetry: the session log is the trace.
