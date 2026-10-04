@@ -25,6 +25,8 @@ export OPENROUTER_API_KEY=sk-or-...
 { "providers": { "openrouter": { "apiKey": "sk-or-..." } } }
 ```
 
+Every setting is listed under *Settings* below.
+
 ## Use
 
 ```sh
@@ -33,6 +35,45 @@ mini-coder                    # interactive; type / for commands and skills
 mini-coder -p "run the tests" # one turn, reply on stdout
 mini-coder --resume           # continue the last session in this folder
 ```
+
+## Settings
+
+`~/.mini-coder/settings.json`. Every key is optional, and flags win over the file.
+
+```json
+{
+  "model": "openrouter:z-ai/glm-5.3-flash",
+  "mode": "default",
+  "sandbox": false,
+  "providers": {
+    "openrouter": { "apiKey": "sk-or-..." },
+    "anthropic": { "apiKey": "sk-ant-..." },
+    "openai": { "apiKey": "sk-...", "baseUrl": "https://api.openai.com/v1" },
+    "google": { "apiKey": "..." }
+  },
+  "permissions": {
+    "allow": ["bash(npm test:*)", "bash(git status)", "edit_file", "github__create_issue"],
+    "deny": ["bash(git push:*)"]
+  },
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_TOKEN": "ghp_..." },
+      "timeoutMs": 30000
+    }
+  }
+}
+```
+
+- `model`: `provider:model`. Providers: `openrouter`, `anthropic`, `openai`, `google`.
+- `mode`: `default` (writes and commands ask), `accept-edits` (writes run), `plan` (read-only), `bypass` (nothing asks).
+- `sandbox`: `true` confines bash to the project. macOS only.
+- `providers`: a key here is used before the environment variable.
+- `permissions`: a rule is `tool`, `tool(command)` for exactly that command, or `tool(command:*)` for that command plus arguments. Deny wins. MCP tools are named `server__tool`.
+- `mcpServers`: each entry is a command that starts a server over stdio.
+
+A project can have its own `.mini-coder/settings.json`, but it is not trusted: only `model`, `permissions.deny` and `"sandbox": true` are read from it.
 
 ## Update
 
