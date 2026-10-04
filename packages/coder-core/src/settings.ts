@@ -15,6 +15,18 @@ const schema = z.object({
     .object({ openrouter: connection, anthropic: connection, openai: connection, google: connection })
     .partial()
     .optional(),
+  /** MCP servers by name, each a command to start. */
+  mcpServers: z
+    .record(
+      z.string().regex(/^[\w-]+$/),
+      z.object({
+        command: z.string().min(1),
+        args: z.array(z.string()).optional(),
+        env: z.record(z.string(), z.string()).optional(),
+        timeoutMs: z.number().int().positive().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export type Settings = z.infer<typeof schema>;
@@ -45,8 +57,8 @@ function readSettings(file: string): Settings {
  *
  * The project file comes with the repository, so it is not trusted to loosen
  * anything: from it only `model` and `permissions.deny` count. Its `mode`,
- * `permissions.allow` and `providers` are ignored — otherwise cloning a
- * repository could hand it your shell or your API keys.
+ * `permissions.allow`, `providers` and `mcpServers` are ignored — otherwise
+ * cloning a repository could hand it your shell or your API keys.
  */
 export function loadSettings(home: string, root: string): Settings {
   const user = readSettings(join(home, "settings.json"));
@@ -56,6 +68,7 @@ export function loadSettings(home: string, root: string): Settings {
     model: project.model ?? user.model,
     mode: user.mode,
     providers: user.providers,
+    mcpServers: user.mcpServers,
     permissions: {
       allow: user.permissions?.allow ?? [],
       deny: [...(user.permissions?.deny ?? []), ...(project.permissions?.deny ?? [])],

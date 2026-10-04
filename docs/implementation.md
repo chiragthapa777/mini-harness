@@ -372,7 +372,8 @@ per-case and a long-lived server never needs a restart to pick up a changed var.
 ### 3.10 mini-coder packages
 
 The local coding agent. Design in [`mini-coder-architecture.md`](mini-coder-architecture.md);
-none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
+none of these import `db`, `memory`, `jobs` or `agent`. `apps/coder` uses `mcp`, which
+brings `config` along, but never reads server config from it.
 
 - **`packages/coder-core`** — the controller and the loop, no UI code.
   - `wire.ts` — everything the UI and the core say to each other, also exported as
@@ -403,7 +404,8 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
     file tool as a whole, a command only verbatim.
   - `settings.ts` — `loadSettings(home, root)` merges `~/.mini-coder/settings.json`
     with `<project>/.mini-coder/settings.json`: `model`, `mode`,
-    `permissions: { allow, deny }`, `providers: { <name>: { apiKey, baseUrl } }`. The
+    `permissions: { allow, deny }`, `providers: { <name>: { apiKey, baseUrl } }`,
+    `mcpServers: { <name>: { command, args, env, timeoutMs } }`. The
     project file is not trusted: only its `model` and `permissions.deny` count. A file
     that is not valid JSON, or names an unknown mode, model or rule, is refused with its
     path. Flags win over settings.
@@ -446,6 +448,12 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
     only place they meet) and returns a `Core`. Messages the session sends before the
     UI sets its handler are kept and delivered first. It reads settings and memory from
     `~/.mini-coder` and the project, and passes provider keys from settings to `llm`.
+    Async: it waits for the MCP servers first. `stop()` also shuts them down.
+  - `src/mcp.ts` — `connectMcp(servers)` starts each server in `mcpServers` with
+    `@mini-agent/mcp` and returns its tools as coder tools named `server__tool`, kind
+    `exec`, so each call asks first (a rule like `github__create_issue` allows one). Esc
+    stops waiting for a call; the server is not told. A server that does not start is
+    shown as an error notice and the session runs without it.
   - `src/ui/headless.ts` — `mini-coder -p "<prompt>" [--model provider:model] [--mode …]`:
     one turn, reply text on stdout, every permission prompt denied. Exit 0 on
     `end_turn`, 1 on any other stop, 130 on Ctrl+C (the turn is stopped first), 2 on bad
@@ -474,7 +482,8 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
     `dist/mini-coder.mjs` (esbuild, one file, Node 22+), the package's `bin`. The API
     key comes from the user's settings, else the environment (`OPENROUTER_API_KEY`, …).
   - Tests: `test/headless.test.ts` runs `-p` as a real process against a local fake of
-    OpenRouter. `test/ui.test.ts` covers the fold, the input line, and fails if `ui/`
+    OpenRouter, including an MCP tool from `packages/mcp`'s fake server;
+    `test/mcp.test.ts` covers `connectMcp`. `test/ui.test.ts` covers the fold, the input line, and fails if `ui/`
     imports anything but `coder-core/wire`, `ink-markdown`, Ink, React or Node. The Ink view has no automated
     test.
 

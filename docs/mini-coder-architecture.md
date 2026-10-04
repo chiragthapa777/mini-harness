@@ -29,7 +29,7 @@ The UI and the core still only exchange messages. A message is a plain object pa
 |---|---|---|
 | `coder-core` | `Session`, loop, permission gate, memory; `wire.ts`: the message types | `llm`, `core/protocol` |
 | `coder-tools` | `read_file`, `edit_file`, `bash`, … | `coder-core` types |
-| `apps/coder` | `main.ts`, `core.ts`, `ui/` | `ui/`: `coder-core/wire` and `ink-markdown` only |
+| `apps/coder` | `main.ts`, `core.ts`, `mcp.ts`, `ui/` | `ui/`: `coder-core/wire` and `ink-markdown` only |
 
 `core.ts` is the one file that imports `coder-core`, `coder-tools` and `llm` together. A test fails if `ui/` imports the rest of `coder-core`, or `coder-tools`: the UI gets its core as an argument.
 
@@ -91,9 +91,9 @@ UI                         core Session                 llm / tools
 
 ## Lifecycle
 
-**Start.** `main.ts` calls `startCore({ cwd, model, mode })`, which builds the `Session` and returns `{ send, onMessage, stop }`. Messages sent before the UI registers its handler, such as the first `session`, are kept and delivered when it does.
+**Start.** `main.ts` awaits `startCore({ cwd, model, mode, resume })`, which starts the MCP servers, builds the `Session` and returns `{ send, onMessage, stop }`. Messages sent before the UI registers its handler, such as the first `session`, are kept and delivered when it does.
 
-**Stop.** `/quit` or Ctrl+C twice → `await core.stop()`, which aborts the turn and kills bash process groups, then the process exits. There is nothing to kill and no grace timer.
+**Stop.** `/quit` or Ctrl+C twice → `await core.stop()`, which aborts the turn, kills bash process groups and shuts the MCP servers down, then the process exits. There is nothing to kill and no grace timer.
 
 **Esc** → `abort`. The turn's `AbortController` stops the LLM stream and bash; `turn_end` reports `aborted`.
 

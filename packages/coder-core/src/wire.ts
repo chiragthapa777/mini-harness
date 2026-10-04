@@ -39,6 +39,6 @@ export interface Core {
   send(message: UiMessage): void;
   /** Sets the one handler for the core's messages; those sent before it was set arrive first. */
   onMessage(handler: (message: CoreMessage) => void): void;
-  /** Aborts the running turn and waits for it to end. */
+  /** Aborts the running turn, waits for it to end, and shuts down what the core started. */
   stop(): Promise<void>;
 }

@@ -18,6 +18,7 @@
     "@mini-agent/coder-tools": "workspace:*",
     "@mini-agent/ink-markdown": "workspace:*",
     "@mini-agent/llm": "workspace:*",
+    "@mini-agent/mcp": "workspace:*",
     "ink": "^7.1.1",
     "react": "^19.2.0"
   },

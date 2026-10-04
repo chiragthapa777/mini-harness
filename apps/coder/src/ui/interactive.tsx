@@ -14,6 +14,5 @@ export async function runInteractive(core: Core): Promise<number> {
   // however the process ends.
   const app = render(<App core={core} cwd={process.cwd()} />, { exitOnCtrlC: false });
   await app.waitUntilExit();
-  await core.stop();
   return 0;
 }

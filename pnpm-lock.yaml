@@ -72,6 +72,9 @@ importers:
       '@mini-agent/llm':
         specifier: workspace:*
         version: link:../../packages/llm
+      '@mini-agent/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
       ink:
         specifier: ^7.1.1
         version: 7.1.1(@types/react@19.2.18)(react@19.2.8)

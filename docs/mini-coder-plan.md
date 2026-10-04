@@ -11,7 +11,8 @@ Design: [architecture](mini-coder-architecture.md), [memory](mini-coder-memory.m
 ## Layout
 
 - `apps/coder`: `main.ts`, `ui/` (Ink, headless), `core.ts` (builds the session). One process.
-- `packages/coder-core`: session, loop, permission gate, settings, memory, MCP; `wire.ts` holds the UI ↔ core messages.
+- `packages/coder-core`: session, loop, permission gate, settings, memory; `wire.ts` holds the UI ↔ core messages.
+- `packages/mcp`: the MCP client, shared with the server; `apps/coder/src/mcp.ts` turns its tools into coder tools.
 - `packages/coder-tools`: tools, path guard, checkpoints.
 
 ## Settled
@@ -37,7 +38,7 @@ Design: [architecture](mini-coder-architecture.md), [memory](mini-coder-memory.m
 | 5 | Permissions: rules, modes, bash splitting, deny list; `write_file`, `glob`, `grep`. **Done.** | table-driven rule tests pass |
 | 6 | Settings, `/model`; `AGENTS.md`, skills, `remember`. **Done.** Settings are one file in `coder-core`, not a `coder-config` package. | layers merge; deny wins; skills load on demand |
 | 7 | Episodic memory: session log, `--resume`, `recall`; compaction. **Done.** No session index or per-session summary: `recall` reads the logs. | resume rebuilds by replay; long session compacts |
-| 8 | MCP (official SDK) | MCP tool runs after approval |
+| 8 | MCP. **Done**, with the repo's own `packages/mcp` client, not the official SDK. | MCP tool runs after approval |
 | 9 | Opt-in: OpenTelemetry, bash sandbox | off by default |
 
 Each phase ends with typecheck and tests green.

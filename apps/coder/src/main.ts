@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { PERMISSION_MODES, type Core, type PermissionMode } from "@mini-agent/coder-core";
+import { PERMISSION_MODES, type PermissionMode } from "@mini-agent/coder-core";
 import { startCore } from "./core.js";
 import { runHeadless } from "./ui/headless.js";
 
@@ -39,14 +39,9 @@ if (positionals.length > 0) fail(`mini-coder: unexpected argument "${positionals
 const mode = values.mode as PermissionMode | undefined;
 if (mode !== undefined && !PERMISSION_MODES.includes(mode)) fail(`mini-coder: unknown mode "${mode}"\n${USAGE}`);
 
-function start(): Core {
-  try {
-    return startCore({ cwd: process.cwd(), model: values.model, mode, resume: values.resume });
-  } catch (err) {
-    fail(`mini-coder: ${(err as Error).message}`);
-  }
-}
-const core = start();
+const core = await startCore({ cwd: process.cwd(), model: values.model, mode, resume: values.resume }).catch(
+  (err: Error): never => fail(`mini-coder: ${err.message}`),
+);
 
 if (values.print !== undefined) {
   process.exitCode = await runHeadless(values.print, core);
@@ -55,3 +50,5 @@ if (values.print !== undefined) {
   const { runInteractive } = await import("./ui/interactive.js");
   process.exitCode = await runInteractive(core);
 }
+// MCP servers are child processes: left running, they would keep this one alive.
+await core.stop();
