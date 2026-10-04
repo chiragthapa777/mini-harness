@@ -1,5 +1,8 @@
-# Builds the mini-coder CLI and attaches it to the GitHub release of every
-# version tag, next to the images `release-images.yml` publishes for the same tag.
+# Builds the mini-coder CLI and attaches it to a GitHub release.
+#
+# Trigger: pushing a tag like `coder-v0.3.0`. The CLI and the server are
+# separate products with their own versions: plain `v*` tags release the server
+# images (`release-images.yml`) and do not start this, and the other way round.
 #
 # The CLI is one JavaScript file that runs on Node 22+, so there is one build,
 # not one per platform. `releases/latest/download/mini-coder.mjs` then always
@@ -9,11 +12,15 @@ name: Release mini-coder
 on:
   push:
     tags:
-      - "v*"
+      - "coder-v*"
 
 # Creating a release and uploading to it needs contents write; nothing else does.
 permissions:
   contents: write
+
+# The version is the tag without its `coder-` prefix: `coder-v0.3.0` -> `v0.3.0`.
+env:
+  TAG: ${{ github.ref_name }}
 
 jobs:
   release:
@@ -42,26 +49,25 @@ jobs:
           pnpm --filter @mini-agent/coder --filter @mini-agent/coder-core --filter @mini-agent/coder-tools --filter @mini-agent/ink-markdown typecheck
           pnpm --filter @mini-agent/coder --filter @mini-agent/coder-core --filter @mini-agent/coder-tools --filter @mini-agent/ink-markdown test
 
-      # The tag is what `mini-coder --version` prints.
+      # The version is what `mini-coder --version` prints.
       - name: Build
-        env:
-          MINI_CODER_VERSION: ${{ github.ref_name }}
-        run: pnpm --filter @mini-agent/coder build
+        run: MINI_CODER_VERSION="${TAG#coder-}" pnpm --filter @mini-agent/coder build
 
       - name: Check the bundle runs
-        run: test "$(node apps/coder/dist/mini-coder.mjs --version)" = "mini-coder ${{ github.ref_name }}"
+        run: test "$(node apps/coder/dist/mini-coder.mjs --version)" = "mini-coder ${TAG#coder-}"
 
       - name: Checksum
         working-directory: apps/coder/dist
         run: sha256sum mini-coder.mjs > mini-coder.mjs.sha256
 
-      # Pre-release tags (v1.4.0-rc.1) are marked as such, so they never become
-      # "latest". `--clobber` lets a re-run of the same tag replace the files.
+      # Pre-release versions (coder-v1.4.0-rc.1) are marked as such, so they never
+      # become "latest". `--clobber` lets a re-run of the same tag replace the files.
       - name: Publish to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes \
-            ${{ contains(github.ref_name, '-') && '--prerelease' || '' }}
+          VERSION="${TAG#coder-}"
+          case "$VERSION" in *-*) PRERELEASE=--prerelease ;; *) PRERELEASE= ;; esac
+          gh release view "$TAG" >/dev/null 2>&1 ||
+            gh release create "$TAG" --title "mini-coder $VERSION" --generate-notes $PRERELEASE
           gh release upload "$TAG" apps/coder/dist/mini-coder.mjs apps/coder/dist/mini-coder.mjs.sha256 --clobber

@@ -38,7 +38,7 @@ mini-coder --resume           # continue the last session in this folder
 
 Run the three install commands again: they replace the file with the newest release. `mini-coder --version` shows what you have. Settings, memory and session logs live in `~/.mini-coder` and are not touched.
 
-A specific version: replace `latest/download` with `download/v0.3.0`.
+A specific version: replace `latest/download` with `download/coder-v0.3.0`.
 
 ## Uninstall
 
@@ -57,4 +57,6 @@ cp apps/coder/dist/mini-coder.mjs ~/.local/bin/mini-coder
 
 ## Releasing
 
-Push a version tag: `git tag v0.3.0 && git push origin v0.3.0`. The `Release mini-coder` workflow tests, builds and attaches `mini-coder.mjs` and its checksum to that release.
+Push a tag with the `coder-` prefix: `git tag coder-v0.3.0 && git push origin coder-v0.3.0`. The `Release mini-coder` workflow tests, builds and attaches `mini-coder.mjs` and its checksum to that release.
+
+mini-coder and the server have separate versions. Plain `v*` tags release the server images and nothing else ([deploy.md](deploy.md)).

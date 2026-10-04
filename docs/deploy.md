@@ -20,6 +20,9 @@ That produces `ghcr.io/chiragthapa777/mini-harness/{api,worker,web}` tagged `0.1
 `0.1`, `0`, and `latest`. A pre-release tag (`v0.2.0-rc.1`) publishes only the full
 version and never moves `latest`.
 
+The `mini-coder` CLI is versioned on its own: `coder-v*` tags release it and do not
+build images ([coder.md](coder.md)).
+
 Images are multi-arch — `linux/amd64` and `linux/arm64` — so the same tag runs on a
 normal cloud host, on Graviton, and on an Apple Silicon laptop. Each architecture builds
 on its own native runner and the two are merged into one manifest afterwards; building
