@@ -8,6 +8,8 @@ Docs:
 - [docs/architecture.md](docs/architecture.md) — the planned system shape (diagram + rationale)
 - [docs/implementation.md](docs/implementation.md) — what's actually built: endpoints, schema, packages, gaps
 - [docs/agent-run.md](docs/agent-run.md) — how one run works end to end: working memory, the loop, tool calls, persistence
+- [docs/coder.md](docs/coder.md) — installing and updating `mini-coder`, the local coding-agent CLI
+- [docs/mini-coder-architecture.md](docs/mini-coder-architecture.md) — how `mini-coder` is built, and why
 
 ## Stack
 
@@ -30,6 +32,7 @@ across models. See `AGENTS.md` for the full design rationale.
 apps/
   api/    Express API — auth, conversations, run loop
   web/    React chat UI
+  coder/  mini-coder, the local coding-agent CLI
 packages/
   core/     agentic loop, tools, guardrails
   llm/      chat transport (only place a provider SDK is named)
