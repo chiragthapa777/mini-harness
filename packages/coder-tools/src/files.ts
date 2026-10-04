@@ -1,4 +1,5 @@
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { Tool } from "@mini-agent/coder-core";
 import { z } from "zod";
 import { display, resolveInProject } from "./paths.js";
@@ -24,7 +25,7 @@ export const readFileTool: Tool<typeof readSchema> = {
     const real = await resolveInProject(ctx.root, path);
     const info = await stat(real).catch(() => null);
     if (!info) throw new Error(`${path} does not exist`);
-    if (info.isDirectory()) throw new Error(`${path} is a directory; list it with bash (ls) instead`);
+    if (info.isDirectory()) throw new Error(`${path} is a directory; list it with glob instead`);
 
     const bytes = await readFile(real);
     // A NUL byte in the first 8 KB is the same heuristic git uses for binary.
@@ -78,7 +79,7 @@ export const editFileTool: Tool<typeof editSchema> = {
   async run({ path, old_string, new_string, replace_all = false }, ctx) {
     const real = await resolveInProject(ctx.root, path);
     const info = await stat(real).catch(() => null);
-    if (!info?.isFile()) throw new Error(`${path} does not exist; edit_file only changes existing files`);
+    if (!info?.isFile()) throw new Error(`${path} does not exist; create it with write_file`);
 
     const readAt = ctx.reads.get(real);
     if (readAt === undefined) throw new Error(`read ${path} with read_file before editing it`);
@@ -113,5 +114,39 @@ export const editFileTool: Tool<typeof editSchema> = {
 
     const replaced = replace_all ? count : 1;
     return `edited ${display(ctx.root, real)} (${replaced} replacement${replaced === 1 ? "" : "s"})`;
+  },
+};
+
+const writeSchema = z.object({
+  path: z.string().min(1).describe("File to create or overwrite; missing folders are created"),
+  content: z.string().describe("The whole new content of the file"),
+});
+
+export const writeFileTool: Tool<typeof writeSchema> = {
+  name: "write_file",
+  description:
+    "Create a file, or replace the whole content of an existing one. An existing file must " +
+    "have been read with read_file first and not changed since. To change part of a file, use edit_file.",
+  kind: "write",
+  schema: writeSchema,
+  async run({ path, content }, ctx) {
+    const real = await resolveInProject(ctx.root, path);
+    const info = await stat(real).catch(() => null);
+    if (info && !info.isFile()) throw new Error(`${path} is not a file`);
+    if (info) {
+      const readAt = ctx.reads.get(real);
+      if (readAt === undefined) throw new Error(`${path} already exists; read it with read_file before overwriting it`);
+      if (info.mtimeMs !== readAt) {
+        throw new Error(`${path} has changed since you read it; read it again before overwriting it`);
+      }
+    }
+
+    await ctx.checkpoint(real);
+    await mkdir(dirname(real), { recursive: true });
+    await writeFile(real, content);
+    ctx.reads.set(real, (await stat(real)).mtimeMs);
+
+    const lines = content === "" ? 0 : content.replace(/\n$/, "").split("\n").length;
+    return `${info ? "overwrote" : "created"} ${display(ctx.root, real)} (${lines} line${lines === 1 ? "" : "s"})`;
   },
 };

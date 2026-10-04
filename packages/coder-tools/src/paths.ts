@@ -5,7 +5,8 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 /**
  * The path guard for file tools. Paths come from the model, so: follow
  * symlinks, stay inside the project, and keep away from secrets and from
- * mini-coder's own settings. (bash is not covered; that is phase 5.)
+ * mini-coder's own settings. (bash does not come through here; the
+ * permission gate blocks commands that name these files.)
  */
 export async function resolveInProject(root: string, input: string): Promise<string> {
   const path = resolve(root, input);
@@ -25,13 +26,16 @@ export function display(root: string, path: string): string {
   return isInside(path, root) && path !== root ? relative(root, path) : path;
 }
 
-/** Follows symlinks. A file that does not exist yet is resolved through its folder. */
+/**
+ * Follows symlinks. A path that does not exist yet is resolved through its
+ * nearest existing folder, so `link/new/file` cannot escape through `link`.
+ */
 async function realpathOf(path: string): Promise<string> {
   try {
     return await realpath(path);
   } catch {
-    const folder = await realpath(dirname(path)).catch(() => dirname(path));
-    return join(folder, basename(path));
+    const parent = dirname(path);
+    return parent === path ? path : join(await realpathOf(parent), basename(path));
   }
 }
 
@@ -39,7 +43,8 @@ function isInside(path: string, folder: string): boolean {
   return path === folder || path.startsWith(folder + sep);
 }
 
-function isOffLimits(root: string, path: string): boolean {
+/** Secrets and mini-coder's own settings: no tool may read, list or change them. */
+export function isOffLimits(root: string, path: string): boolean {
   const home = homedir();
   if (isInside(path, join(home, ".ssh")) || isInside(path, join(home, ".mini-coder"))) return true;
 

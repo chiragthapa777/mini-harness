@@ -388,17 +388,33 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
     run each call (bad calls become error results), add results to the history, repeat
     until a reply has no calls. Limits: 100 model calls and 2M tokens per turn; tool
     output capped at 30k chars. On abort the shown text is kept, marked interrupted.
-  - `gate.ts` — `checkPermission(mode, tool)`: reads allowed; writes and commands ask
-    (`accept-edits` allows writes, `plan` denies both, `bypass` allows all). "always"
-    covers a file tool as a whole, a command only verbatim.
+  - `gate.ts` — `checkPermission(mode, tool, input, rules)`. In order: the block list
+    and deny rules refuse in every mode, `bypass` included; reads run; `bypass` allows,
+    `plan` denies; allow rules allow; `accept-edits` allows writes; otherwise writes and
+    commands ask. A rule is `tool`, `tool(command)` (exactly) or `tool(command:*)` (that,
+    or that plus arguments), parsed by `parseRule`. `splitCommand` cuts a line on `;`,
+    `&`, `&&`, `||`, `|` and line breaks outside quotes: every command needs an allow
+    rule, one denied command denies the line. A line with substitution, redirection or
+    a subshell is not split, so only an exact rule covers it. The block list is regexes
+    over the whole command: `sudo`, deleting `/` or `~`, disk devices, a download piped
+    to a shell, fork bombs, `.env*` (not `.env.example`), `~/.ssh`, mini-coder's settings.
+    It is a pattern list, not a sandbox. Rules come from `SessionOptions.rules` (nothing
+    supplies them until phase 6) and from "always" answers, which add an allow rule: a
+    file tool as a whole, a command only verbatim.
   - `checkpoints.ts` (per-turn file snapshots for `/undo`), `prompt.ts` (rules → tools →
     environment), `model.ts` (`provider:model`, default `openrouter:z-ai/glm-5.3-flash`).
 - **`packages/coder-tools`** — `read_file` (numbered lines, offset/limit, no binaries,
   remembers the mtime), `edit_file` (needs a prior read and an unchanged file, an exact
-  unique match or `replace_all`, checkpoints first), `bash` (own process group killed
-  on timeout or Esc, `cd` carried over via file descriptor 3, stdin closed, background
-  jobs do not hang it). `paths.ts`: realpath, inside the project, never `.env*` (except
-  `.env.example`), `~/.ssh`, `~/.mini-coder` or `.mini-coder/settings*.json`.
+  unique match or `replace_all`, checkpoints first), `write_file` (creates a file and its
+  folders, or overwrites one that was read and is unchanged; checkpoints first), `glob`
+  (paths matching a glob, sorted, 200 at most), `grep` (JavaScript regex, line by line,
+  `path:line:text`, optional `path`, `glob` and `ignore_case`, 200 matches at most;
+  skips binaries and files over 1 MB), `bash` (own process group killed on timeout or
+  Esc, `cd` carried over via file descriptor 3, stdin closed, background jobs do not
+  hang it). `glob` and `grep` share one walk in plain Node: no symlinks, no `.git` or
+  `node_modules`, no `.gitignore` (so no `rg` yet). `paths.ts`: realpath through the
+  nearest existing folder, inside the project, never `.env*` (except `.env.example`),
+  `~/.ssh`, `~/.mini-coder` or `.mini-coder/settings*.json`.
 - **`apps/coder`** — one command, one process. `src/main.ts` reads the flags, builds
   the core and hands it to one of the two UIs; a model or mode that cannot be used
   exits 2.

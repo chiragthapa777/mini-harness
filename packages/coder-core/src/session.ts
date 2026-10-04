@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import type { ChatClient, Msg } from "@mini-agent/llm";
 import { Checkpoints } from "./checkpoints.js";
-import { alwaysKey, checkPermission } from "./gate.js";
+import { alwaysRule, checkPermission, parseRule, type Rules } from "./gate.js";
 import { DEFAULT_LIMITS, runLoop, type Limits } from "./loop.js";
 import { DEFAULT_MODEL, formatModel, parseModel, type ModelSpec } from "./model.js";
 import { buildSystemPrompt } from "./prompt.js";
@@ -14,6 +14,8 @@ export interface SessionOptions {
   createModel(spec: ModelSpec): ChatClient;
   model?: string; // "provider:model"
   mode?: PermissionMode;
+  /** Permission rules as text, like `bash(npm test:*)`. Deny wins over allow. */
+  rules?: { allow?: string[]; deny?: string[] };
   limits?: Partial<Limits>;
 }
 
@@ -33,7 +35,7 @@ export class Session {
   private checkpoints = new Checkpoints();
   private reads = new Map<string, number>(); // file → mtime when read
   private shell: { cwd: string };
-  private alwaysAllowed = new Set<string>();
+  private rules: Rules; // "always" answers add to `allow`
   private waitingPermissions = new Map<string, (decision: Decision) => void>(); // by callId
   private callCount = 0;
   private limits: Limits;
@@ -51,6 +53,10 @@ export class Session {
     this.spec = parseModel(options.model ?? DEFAULT_MODEL);
     this.model = options.createModel(this.spec);
     this.mode = options.mode ?? "default";
+    this.rules = {
+      allow: (options.rules?.allow ?? []).map(parseRule),
+      deny: (options.rules?.deny ?? []).map(parseRule),
+    };
     this.limits = { ...DEFAULT_LIMITS, ...options.limits };
     this.system = buildSystemPrompt(options.tools, {
       root: this.root,
@@ -121,9 +127,7 @@ export class Session {
 
   /** Returns why the call may not run, or null when it may. */
   private async authorize(tool: Tool, input: unknown, callId: string, signal: AbortSignal): Promise<string | null> {
-    if (this.alwaysAllowed.has(alwaysKey(tool, input))) return null;
-
-    const verdict = checkPermission(this.mode, tool);
+    const verdict = checkPermission(this.mode, tool, input, this.rules);
     if (verdict.decision === "allow") return null;
     if (verdict.decision === "deny") return verdict.reason;
 
@@ -137,7 +141,7 @@ export class Session {
 
     if (signal.aborted) return "the user aborted the turn";
     if (decision === "deny") return "the user denied this call";
-    if (decision === "always") this.alwaysAllowed.add(alwaysKey(tool, input));
+    if (decision === "always") this.rules.allow.push(alwaysRule(tool, input));
     return null;
   }
 

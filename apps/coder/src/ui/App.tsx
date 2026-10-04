@@ -19,7 +19,14 @@ const PERMISSION_INPUT_LINES = 20;
 // ahead cannot approve a command. Upgrade: require a second confirming key.
 const PERMISSION_ARM_MS = 600;
 
-const TOOL_LABELS: Record<string, string> = { bash: "Bash", read_file: "Read", edit_file: "Update" };
+const TOOL_LABELS: Record<string, string> = {
+  bash: "Bash",
+  read_file: "Read",
+  edit_file: "Update",
+  write_file: "Write",
+  glob: "Glob",
+  grep: "Grep",
+};
 
 const HELP = [
   "/clear   start a new conversation",
@@ -264,7 +271,7 @@ function ToolCard({ item }: { item: ToolItem }) {
   const color = item.status === "running" ? "gray" : item.status === "error" ? "red" : "green";
   const lines = item.output.trimEnd().split("\n");
   const isRead = item.name === "read_file" && item.status === "done";
-  const isEdit = item.name === "edit_file" && item.status !== "error";
+  const isChange = (item.name === "edit_file" || item.name === "write_file") && item.status !== "error";
 
   // While it runs the newest lines matter; once done, the start reads better.
   const shown = item.status === "running" ? lines.slice(-TOOL_OUTPUT_LINES) : lines.slice(0, TOOL_OUTPUT_LINES);
@@ -280,9 +287,9 @@ function ToolCard({ item }: { item: ToolItem }) {
         <Text bold>{TOOL_LABELS[item.name] ?? item.name}</Text>({inputSummary(item.input)})
       </Text>
       {output.trim() !== "" && <Result isError={item.status === "error"}>{output}</Result>}
-      {isEdit && (
+      {isChange && (
         <Box marginLeft={5}>
-          <Diff removed={fields.old_string} added={fields.new_string} max={DIFF_LINES} />
+          <Diff removed={fields.old_string} added={fields.new_string ?? fields.content} max={DIFF_LINES} />
         </Box>
       )}
     </Box>
@@ -340,7 +347,9 @@ function permissionOptions(tool: string): { label: string; decision: Decision }[
 function PermissionPrompt({ params, choice }: { params: PermissionParams; choice: number }) {
   // Shown in full: this is what the user is approving.
   const fields = asFields(params.input);
-  const isEdit = typeof fields.old_string === "string" && typeof fields.new_string === "string";
+  // An edit shows what it replaces; a written file shows its content.
+  const added = fields.new_string ?? fields.content;
+  const isChange = typeof fields.path === "string" && typeof added === "string";
   const lines = inputText(params.input).split("\n");
   const hidden = lines.length - PERMISSION_INPUT_LINES;
   return (
@@ -349,13 +358,13 @@ function PermissionPrompt({ params, choice }: { params: PermissionParams; choice
         {TOOL_LABELS[params.tool] ?? params.tool}
       </Text>
       <Box flexDirection="column" marginLeft={2} marginY={1}>
-        {isEdit ? (
+        {isChange ? (
           <>
             <Text>
               {String(fields.path)}
               {fields.replace_all === true && " (every occurrence)"}
             </Text>
-            <Diff removed={fields.old_string} added={fields.new_string} max={PERMISSION_INPUT_LINES} />
+            <Diff removed={fields.old_string} added={added} max={PERMISSION_INPUT_LINES} />
           </>
         ) : (
           <>
@@ -390,7 +399,7 @@ function inputText(input: unknown): string {
 
 function inputSummary(input: unknown): string {
   const fields = asFields(input);
-  const main = fields.command ?? fields.path;
+  const main = fields.command ?? fields.pattern ?? fields.path;
   const text = (typeof main === "string" ? main : (JSON.stringify(input) ?? "")).replace(/\s+/g, " ");
   return text.length > 100 ? `${text.slice(0, 100)}…` : text;
 }

@@ -20,7 +20,7 @@ Design: [architecture](mini-coder-architecture.md), [memory](mini-coder-memory.m
 - File content stays in JSON tool calls.
 - Overwriting needs a prior read and an unchanged mtime.
 - Edits are checkpointed; `/undo` reverts the last turn, except bash changes.
-- `grep` uses `rg`, else a Node fallback.
+- `grep` is plain Node for now; `rg` is the upgrade when a large repo needs it.
 - Memory is plain files under `~/.mini-coder/`, outside the repo. `AGENTS.md` stays human-owned.
 - Each turn is capped at 100 iterations and a token budget.
 - macOS/Linux first.
@@ -35,7 +35,7 @@ Design: [architecture](mini-coder-architecture.md), [memory](mini-coder-memory.m
 | 3 | Headless `-p`, process lifecycle, bundle. **Done.** | `-p` works with a real model; either side exiting ends both |
 | 4 | Ink UI: fold, transcript, tool cards, permission prompt, Esc, input queue. **Done.** | interactive session works; `ui/` import boundary test passes |
 | 4b | Single process: `core.ts` replaces `serve.ts` and `ui/core-process.ts`; `wire.ts` keeps only the types. **Done.** | `-p` and the Ink session run with no child process |
-| 5 | Permissions: rules, modes, bash splitting, deny list; `write_file`, `glob`, `grep` | table-driven rule tests pass |
+| 5 | Permissions: rules, modes, bash splitting, deny list; `write_file`, `glob`, `grep`. **Done.** | table-driven rule tests pass |
 | 6 | `coder-config`, `/model`; `AGENTS.md`, skills, `remember` | layers merge; deny wins; skills load on demand |
 | 7 | Episodic memory: session log, `resume`, summaries, `recall`; compaction | resume rebuilds by replay; long session compacts |
 | 8 | MCP (official SDK) | MCP tool runs after approval |

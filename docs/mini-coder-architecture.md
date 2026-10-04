@@ -115,7 +115,7 @@ What is given up: a UI written in another language, and a UI that survives a cor
 
 - `ChatClient` (`packages/llm`)
 - `Tool { name, schema, run(input, { signal, onOutput }) }`
-- `PermissionGate.check(call) → allow | deny | ask`
+- `checkPermission(mode, tool, input, rules) → allow | deny | ask`
 - `Memory`: skills, `AGENTS.md`, facts, session log ([mini-coder-memory.md](mini-coder-memory.md))
 
 Tests call `Session.receive` and collect what it sends, with a fake `ChatClient`: the real code path, no streams.

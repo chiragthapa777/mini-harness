@@ -87,7 +87,7 @@ test("edit_file refuses missing, ambiguous and no-op edits", async () => {
   await assert.rejects(editFileTool.run({ path: "a.ts", old_string: "", new_string: "z" }, ctx), /empty/);
   await assert.rejects(
     editFileTool.run({ path: "missing.ts", old_string: "a", new_string: "b" }, ctx),
-    /only changes existing files/,
+    /create it with write_file/,
   );
 
   const out = await editFileTool.run({ path: "a.ts", old_string: "x", new_string: "z", replace_all: true }, ctx);

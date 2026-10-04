@@ -35,7 +35,7 @@ test("reads never ask", async () => {
 });
 
 test("a denied call is reported to the model", async () => {
-  const h = await harness({ tools: [shellTool], replies: [toolCall("shell", { command: "rm -rf /" }), "ok"], answers: ["deny"] });
+  const h = await harness({ tools: [shellTool], replies: [toolCall("shell", { command: "rm -rf build" }), "ok"], answers: ["deny"] });
   await h.turn("clean up");
   assert.ok(summary(h.events).includes("end error: not run: the user denied this call"));
 });
