@@ -498,10 +498,11 @@ brings `config` along, but never reads server config from it.
 ### 3.11 `packages/ink-markdown`
 
 `<Markdown>` for Ink, used by `apps/tui` and `apps/coder`. `markdown-parser.ts` (pure,
-tested) covers headings, emphasis, inline code, fenced blocks, lists, quotes, rules and
-links; `Markdown.tsx` maps that onto Ink. Tables and images are deliberately
-unsupported — a terminal cannot show them — and anything unrecognised falls through as
-plain text.
+tested) covers headings, emphasis, inline code, fenced blocks, lists, quotes, rules, links and
+tables; `Markdown.tsx` maps that onto Ink. A table is piped rows with a divider as the
+second line; its columns are as wide as their longest cell, capped at 60, and the last
+column wraps to fit the terminal. Images are deliberately unsupported, and anything
+unrecognised falls through as plain text.
 
 ---
 

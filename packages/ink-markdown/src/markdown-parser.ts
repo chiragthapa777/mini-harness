@@ -3,15 +3,15 @@
  *
  * The agent writes markdown because the web app renders it; the TUI showed it
  * raw, so `**this**` and fenced code arrived as literal punctuation. A full
- * CommonMark implementation is not the answer — the terminal cannot show a
- * table or an image anyway, and every dependency here is one the TUI carries
- * forever. What matters is that emphasis, headings, lists, and code blocks
+ * CommonMark implementation is not the answer — the terminal cannot show an
+ * image anyway, and every dependency here is one the TUI carries forever.
+ * What matters is that emphasis, headings, lists, tables, and code blocks
  * read as themselves.
  *
  * Parsing lives here and rendering in `Markdown.tsx`, so the interesting half
  * is testable without a terminal.
  *
- * Deliberately unsupported: tables, images, nested lists, reference links,
+ * Deliberately unsupported: images, nested lists, reference links,
  * setext headings. Anything unrecognised falls through as plain text rather
  * than being swallowed — mangled output beats missing output.
  */
@@ -22,6 +22,7 @@ export type Block =
   | { kind: "list"; marker: string; spans: Span[] }
   | { kind: "quote"; spans: Span[] }
   | { kind: "code"; language?: string; lines: string[] }
+  | { kind: "table"; header: Span[][]; rows: Span[][][] } // a row is cells, a cell is spans
   | { kind: "rule" }
   | { kind: "blank" };
 
@@ -40,6 +41,17 @@ const BULLET = /^(\s*)[-*+]\s+(.*)$/;
 const NUMBERED = /^(\s*)(\d+)[.)]\s+(.*)$/;
 const QUOTE = /^\s*>\s?(.*)$/;
 const RULE = /^\s*([-*_])(\s*\1){2,}\s*$/;
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
+const TABLE_DIVIDER = /^\s*\|(\s*:?-+:?\s*\|)+\s*$/;
+
+/** `| a | b |` → the cells, trimmed. `\|` is a literal pipe. */
+function cells(row: string): Span[][] {
+  return row
+    .trim()
+    .slice(1, -1)
+    .split(/(?<!\\)\|/)
+    .map((cell) => parseInline(cell.trim().replaceAll("\\|", "|")));
+}
 
 export function parseBlocks(markdown: string): Block[] {
   // An empty reply is nothing to render, not one empty line — the streaming
@@ -52,7 +64,25 @@ export function parseBlocks(markdown: string): Block[] {
   let fence: { marker: string; language?: string; lines: string[] } | null = null;
   let paragraph: string[] = [];
 
+  let table: string[] = [];
+
+  // Rows are a table only with a divider as their second line. Without one
+  // (a lone `| x |` line, or a table still streaming in) they stay text.
+  const flushTable = () => {
+    const [header, divider, ...rows] = table;
+    table = [];
+    if (header === undefined) return;
+    if (divider !== undefined && TABLE_DIVIDER.test(divider)) {
+      blocks.push({ kind: "table", header: cells(header), rows: rows.map(cells) });
+    } else {
+      for (const row of [header, divider, ...rows]) {
+        if (row !== undefined) blocks.push({ kind: "paragraph", spans: parseInline(row.trim()) });
+      }
+    }
+  };
+
   const flushParagraph = () => {
+    flushTable();
     if (paragraph.length === 0) return;
     blocks.push({ kind: "paragraph", spans: parseInline(paragraph.join(" ")) });
     paragraph = [];
@@ -81,6 +111,12 @@ export function parseBlocks(markdown: string): Block[] {
     if (!line.trim()) {
       flushParagraph();
       blocks.push({ kind: "blank" });
+      continue;
+    }
+
+    if (TABLE_ROW.test(line)) {
+      if (table.length === 0) flushParagraph();
+      table.push(line);
       continue;
     }
 
@@ -126,6 +162,7 @@ export function parseBlocks(markdown: string): Block[] {
       continue;
     }
 
+    flushTable();
     paragraph.push(line.trim());
   }
 
