@@ -408,8 +408,9 @@ brings `config` along, but never reads server config from it.
   - `settings.ts` — `loadSettings(home, root)` merges `~/.mini-coder/settings.json`
     with `<project>/.mini-coder/settings.json`: `model`, `mode`,
     `permissions: { allow, deny }`, `providers: { <name>: { apiKey, baseUrl } }`,
-    `mcpServers: { <name>: { command, args, env, timeoutMs } }`. The
-    project file is not trusted: only its `model` and `permissions.deny` count. A file
+    `mcpServers: { <name>: { command, args, env, timeoutMs } }`, `sandbox`. The
+    project file is not trusted: only its `model`, `permissions.deny` and `sandbox: true`
+    count. A file
     that is not valid JSON, or names an unknown mode, model or rule, is refused with its
     path. Flags win over settings.
   - `memory.ts` — `loadMemory(home, root)`, once per session: prompt text from
@@ -439,8 +440,11 @@ brings `config` along, but never reads server config from it.
   (paths matching a glob, sorted, 200 at most), `grep` (JavaScript regex, line by line,
   `path:line:text`, optional `path`, `glob` and `ignore_case`, 200 matches at most;
   skips binaries and files over 1 MB), `bash` (own process group killed on timeout or
-  Esc, `cd` carried over via file descriptor 3, stdin closed, background jobs do not
-  hang it). `glob` and `grep` share one walk in plain Node: no symlinks, no `.git` or
+  Esc, `cd` carried over via file descriptor 3, stdin closed, background jobs do not hang it; with `sandbox: true` in settings it runs under macOS
+  `sandbox-exec`: writes only inside the project, temp folders and package-manager
+  caches (`~/.npm`, `~/.cache`, `~/.pnpm-store`, `~/Library/Caches`, `~/Library/pnpm`),
+  no reading `~/.ssh` or `~/.mini-coder`, network open; on other systems a sandboxed
+  command refuses to run). `createTools({ sandbox })` builds the list. `glob` and `grep` share one walk in plain Node: no symlinks, no `.git` or
   `node_modules`, no `.gitignore` (so no `rg` yet). `paths.ts`: realpath through the
   nearest existing folder, inside the project, never `.env*` (except `.env.example`),
   `~/.ssh`, `~/.mini-coder` or `.mini-coder/settings*.json`.

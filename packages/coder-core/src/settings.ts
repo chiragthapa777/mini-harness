@@ -15,6 +15,8 @@ const schema = z.object({
     .object({ openrouter: connection, anthropic: connection, openai: connection, google: connection })
     .partial()
     .optional(),
+  /** Run bash confined by the operating system. Off unless set. */
+  sandbox: z.boolean().optional(),
   /** MCP servers by name, each a command to start. */
   mcpServers: z
     .record(
@@ -56,7 +58,8 @@ function readSettings(file: string): Settings {
  * (`<root>/.mini-coder/settings.json`).
  *
  * The project file comes with the repository, so it is not trusted to loosen
- * anything: from it only `model` and `permissions.deny` count. Its `mode`,
+ * anything: from it only `model`, `permissions.deny` and `sandbox: true`
+ * count (each only tightens). Its `mode`,
  * `permissions.allow`, `providers` and `mcpServers` are ignored — otherwise
  * cloning a repository could hand it your shell or your API keys.
  */
@@ -69,6 +72,7 @@ export function loadSettings(home: string, root: string): Settings {
     mode: user.mode,
     providers: user.providers,
     mcpServers: user.mcpServers,
+    sandbox: (user.sandbox ?? false) || (project.sandbox ?? false),
     permissions: {
       allow: user.permissions?.allow ?? [],
       deny: [...(user.permissions?.deny ?? []), ...(project.permissions?.deny ?? [])],

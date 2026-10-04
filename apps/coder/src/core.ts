@@ -10,7 +10,7 @@ import {
   type CoreMessage,
   type PermissionMode,
 } from "@mini-agent/coder-core";
-import { defaultTools } from "@mini-agent/coder-tools";
+import { createTools } from "@mini-agent/coder-tools";
 import { chatModel } from "@mini-agent/llm";
 import { connectMcp } from "./mcp.js";
 
@@ -52,7 +52,7 @@ export async function startCore(options: {
       memory: memory.prompt,
       skills: memory.skills,
       logFile,
-      tools: [...defaultTools, ...memory.tools, ...mcp.tools],
+      tools: [...createTools({ sandbox: settings.sandbox }), ...memory.tools, ...mcp.tools],
       createModel: ({ provider, model }) =>
         chatModel(provider, model, MAX_OUTPUT_TOKENS, settings.providers?.[provider]),
     });

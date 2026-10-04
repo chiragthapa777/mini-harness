@@ -30,7 +30,7 @@ test("settings: the layers merge, and deny wins", async () => {
     }),
   });
   const root = await folder({
-    ".mini-coder/settings.json": JSON.stringify({ model: "openrouter:z-ai/glm-5.3-flash", permissions: { deny: ["bash(git push:*)"] } }),
+    ".mini-coder/settings.json": JSON.stringify({ model: "openrouter:z-ai/glm-5.3-flash", sandbox: true, permissions: { deny: ["bash(git push:*)"] } }),
   });
 
   const settings = loadSettings(home, root);
@@ -39,6 +39,7 @@ test("settings: the layers merge, and deny wins", async () => {
     mode: "accept-edits",
     providers: { anthropic: { apiKey: "sk-user" } },
     mcpServers: { github: { command: "github-mcp", args: ["--stdio"] } },
+    sandbox: true, // the project turned it on
     permissions: { allow: ["bash(npm test:*)", "bash(git push:*)"], deny: ["bash(rm:*)", "bash(git push:*)"] },
   });
 
@@ -64,6 +65,7 @@ test("settings: a project cannot loosen permissions, change the mode or set prov
     mode: undefined,
     providers: undefined,
     mcpServers: undefined,
+    sandbox: false,
     permissions: { allow: [], deny: [] },
   });
 });

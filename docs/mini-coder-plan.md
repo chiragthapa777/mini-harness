@@ -40,7 +40,7 @@ Design: [architecture](mini-coder-architecture.md), [memory](mini-coder-memory.m
 | 7 | Episodic memory: session log, `--resume`, `recall`; compaction. **Done.** No session index or per-session summary: `recall` reads the logs. | resume rebuilds by replay; long session compacts |
 | 8 | MCP. **Done**, with the repo's own `packages/mcp` client, not the official SDK. | MCP tool runs after approval |
 | 8b | `/` menu: actions and skills with completion; `/tools`; `/<skill>` runs a skill. **Done.** | menu filters by prefix; a skill message reaches the model as an instruction |
-| 9 | Opt-in: OpenTelemetry, bash sandbox | off by default |
+| 9 | Opt-in: bash sandbox. **Done** on macOS; Linux refuses to run sandboxed. OpenTelemetry: skipped, the session log is the trace. | off by default |
 
 Each phase ends with typecheck and tests green.
 

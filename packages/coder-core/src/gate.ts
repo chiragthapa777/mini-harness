@@ -34,7 +34,7 @@ export function parseRule(text: string): Rule {
  * Commands refused in every mode, bypass included. Matched against the whole
  * command text, so quoting does not hide them.
  * ponytail: a pattern list, not a sandbox. `bash -c "$(echo cm0gLXJmIC8= | base64 -d)"`
- * gets through. Upgrade: run bash in a sandbox (phase 9).
+ * gets through. The `sandbox` setting is what confines bash for real.
  */
 const BLOCKED: [RegExp, string][] = [
   [/\bsudo\b/, "sudo"],

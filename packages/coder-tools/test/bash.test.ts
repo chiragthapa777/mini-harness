@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { bashTool } from "../src/bash.js";
+import { bashTool, createBashTool } from "../src/bash.js";
 import { context, tempProject } from "./helpers.js";
 
 test("runs a command, streams its output, and returns it", async () => {
@@ -82,4 +83,26 @@ test("multi-byte characters survive chunk boundaries", async () => {
   // 3-byte characters, written one byte at a time: every boundary splits one.
   const out = await bashTool.run({ command: "printf '\\xe2\\x9c\\x93'; printf '\\xe2'; sleep 0.05; printf '\\x9c\\x93\\n'" }, ctx);
   assert.equal(out, "✓✓\n");
+});
+
+test("sandboxed bash writes inside the project and temp folders, nowhere else", { skip: process.platform !== "darwin" }, async () => {
+  const root = await tempProject();
+  const { ctx } = context(root);
+  const sandboxed = createBashTool({ sandbox: true });
+  const outside = join(homedir(), `.mini-coder-sandbox-test-${process.pid}`);
+
+  assert.equal(await sandboxed.run({ command: "echo inside > a.txt && cat a.txt" }, ctx), "inside\n");
+  assert.equal(await readFile(join(root, "a.txt"), "utf8"), "inside\n");
+  assert.equal(await sandboxed.run({ command: 'echo tmp > "$TMPDIR/sandbox-probe" && echo ok' }, ctx), "ok\n");
+
+  const denied = await sandboxed.run({ command: `echo x > ${outside}` }, ctx);
+  assert.match(denied, /Operation not permitted/);
+  assert.match(denied, /\[exit code 1\]/);
+  assert.equal(await stat(outside).catch(() => null), null);
+
+  assert.match(await sandboxed.run({ command: "ls ~/.mini-coder" }, ctx), /Operation not permitted/);
+  // `cd` still carries over: the pipe on file descriptor 3 is not a file write.
+  await mkdir(join(root, "sub"));
+  await sandboxed.run({ command: "cd sub" }, ctx);
+  assert.equal(ctx.shell.cwd, join(root, "sub"));
 });
