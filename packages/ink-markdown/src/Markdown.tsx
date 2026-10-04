@@ -1,3 +1,6 @@
+// tsx applies an app's tsconfig only to that app's files, so run from source
+// this file would fall back to classic JSX and need `React` in scope.
+/** @jsxRuntime automatic */
 import { Box, Text } from "ink";
 import { parseBlocks, type Block, type Span } from "./markdown-parser.js";
 
@@ -71,6 +74,9 @@ function BlockView({ block }: { block: Block }) {
         </Box>
       );
 
+    case "table":
+      return <Table header={block.header} rows={block.rows} />;
+
     case "paragraph":
       return (
         <Text>
@@ -78,6 +84,41 @@ function BlockView({ block }: { block: Block }) {
         </Text>
       );
   }
+}
+
+const MAX_COLUMN_WIDTH = 60;
+
+/**
+ * Columns as wide as their longest cell, up to a cap; longer cells wrap
+ * inside their column.
+ * ponytail: widths count characters, so emoji and CJK text misalign a
+ * little. Upgrade: measure with string-width.
+ */
+function Table({ header, rows }: { header: Span[][]; rows: Span[][][] }) {
+  const length = (cell: Span[] = []) => cell.reduce((sum, span) => sum + span.text.length, 0);
+  const widths = header.map((cell, column) =>
+    Math.min(MAX_COLUMN_WIDTH, Math.max(length(cell), ...rows.map((row) => length(row[column])))),
+  );
+
+  const row = (cellsOfRow: Span[][], key: number, bold = false) => (
+    <Box key={key}>
+      {widths.map((width, column) => (
+        <Box key={column} width={width} marginRight={2} flexShrink={column === widths.length - 1 ? 1 : 0}>
+          <Text bold={bold}>
+            <Spans spans={cellsOfRow[column] ?? []} />
+          </Text>
+        </Box>
+      ))}
+    </Box>
+  );
+
+  return (
+    <Box flexDirection="column">
+      {row(header, -1, true)}
+      <Text dimColor wrap="truncate">{widths.map((width) => "─".repeat(width)).join("  ")}</Text>
+      {rows.map((cellsOfRow, index) => row(cellsOfRow, index))}
+    </Box>
+  );
 }
 
 function Spans({ spans }: { spans: Span[] }) {

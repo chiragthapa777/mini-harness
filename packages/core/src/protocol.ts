@@ -2,6 +2,14 @@ import { z } from "zod";
 import type { AgentTool } from "./types.js";
 
 /**
+ * Also published on its own as `@mini-agent/core/protocol`, so a harness that
+ * only needs the wire format (the mini-coder CLI) gets it without the server's
+ * tools, and the search stack they pull in. Keep this file's runtime imports
+ * to zod alone — `test/protocol-export.test.ts` holds it to that.
+ */
+export type { AgentTool };
+
+/**
  * Our own tool-calling protocol.
  *
  * `@mini-agent/llm` is the chat transport and nothing more — no provider-native
@@ -24,8 +32,13 @@ const callShape = z.object({
   input: z.record(z.string(), z.unknown()).default({}),
 });
 
-/** Rendered into the system prompt so the model knows the format and the tools. */
-export function renderToolCatalog(tools: AgentTool[]): string {
+/**
+ * Rendered into the system prompt so the model knows the format and the tools.
+ * Only the describing fields are read, so any harness's tool shape fits.
+ */
+export function renderToolCatalog(
+  tools: Pick<AgentTool, "name" | "description" | "schema">[],
+): string {
   if (tools.length === 0) return "";
 
   const catalog = tools

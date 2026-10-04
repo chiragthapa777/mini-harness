@@ -2,9 +2,12 @@ import { getConfig } from "@mini-agent/config";
 import type { GoogleGenAI } from "@google/genai";
 import type { Content, GenerateContentResponse } from "@google/genai";
 import {
+  cancelled,
   collectStream,
+  type CallOptions,
   type ChatClient,
   type ChatOptions,
+  type Connection,
   type Delta,
   type Msg,
   type Provider,
@@ -69,17 +72,23 @@ export class GoogleClient implements ChatClient {
   readonly provider: Provider = "google";
   readonly model: string;
   private readonly maxTokens: number;
+  private readonly connection: Connection;
   private client?: GoogleGenAI;
 
   constructor(options: ChatOptions) {
     this.model = options.model;
     this.maxTokens = options.maxTokens;
+    this.connection = { apiKey: options.apiKey, baseUrl: options.baseUrl };
   }
 
   private async sdk(): Promise<GoogleGenAI> {
     if (!this.client) {
       const { GoogleGenAI: Ctor } = await import("@google/genai");
-      this.client = new Ctor({ apiKey: getConfig().llm.google.apiKey });
+      const { apiKey, baseUrl } = this.connection;
+      this.client = new Ctor({
+        apiKey: apiKey ?? getConfig().llm.google.apiKey,
+        ...(baseUrl ? { httpOptions: { baseUrl } } : {}),
+      });
     }
     return this.client;
   }
@@ -88,7 +97,7 @@ export class GoogleClient implements ChatClient {
    * `includeThoughts` is left off for parity with the other adapters: thinking
    * is surfaced when a model volunteers it, not requested by default.
    */
-  private request(messages: Msg[]) {
+  private request(messages: Msg[], signal: AbortSignal | undefined) {
     const { systemInstruction, contents } = toGoogleParams(messages);
     return {
       model: this.model,
@@ -96,13 +105,20 @@ export class GoogleClient implements ChatClient {
       config: {
         maxOutputTokens: this.maxTokens,
         ...(systemInstruction ? { systemInstruction } : {}),
+        // Gemini takes cancellation as request config, not a request option.
+        ...(signal ? { abortSignal: signal } : {}),
       },
     };
   }
 
-  async invoke(messages: Msg[]) {
+  async invoke(messages: Msg[], { signal }: CallOptions = {}) {
     const client = await this.sdk();
-    const response = await client.models.generateContent(this.request(messages));
+    let response: GenerateContentResponse;
+    try {
+      response = await client.models.generateContent(this.request(messages, signal));
+    } catch (err) {
+      throw cancelled(err, signal);
+    }
     const { text, thinking } = split(response);
 
     return {
@@ -113,21 +129,27 @@ export class GoogleClient implements ChatClient {
     };
   }
 
-  async *stream(messages: Msg[]): AsyncGenerator<Delta, void, undefined> {
+  async *stream(messages: Msg[], { signal }: CallOptions = {}): AsyncGenerator<Delta, void, undefined> {
     const client = await this.sdk();
-    const stream = await client.models.generateContentStream(this.request(messages));
-
     let usage: Usage = { inputTokens: 0, outputTokens: 0 };
     let finish: string | undefined;
 
-    for await (const chunk of stream) {
-      const { text, thinking } = split(chunk);
-      if (thinking) yield { type: "thinking", text: thinking };
-      if (text) yield { type: "text", text };
+    try {
+      const stream = await client.models.generateContentStream(this.request(messages, signal));
 
-      // Gemini reports cumulative totals on every chunk, so take the last.
-      usage = usageOf(chunk) ?? usage;
-      finish = chunk.candidates?.[0]?.finishReason ?? finish;
+      for await (const chunk of stream) {
+        signal?.throwIfAborted();
+
+        const { text, thinking } = split(chunk);
+        if (thinking) yield { type: "thinking", text: thinking };
+        if (text) yield { type: "text", text };
+
+        // Gemini reports cumulative totals on every chunk, so take the last.
+        usage = usageOf(chunk) ?? usage;
+        finish = chunk.candidates?.[0]?.finishReason ?? finish;
+      }
+    } catch (err) {
+      throw cancelled(err, signal);
     }
 
     yield { type: "usage", usage };

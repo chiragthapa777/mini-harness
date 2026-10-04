@@ -27,6 +27,7 @@ run actually works step by step (the loop, tool calls, working memory), see
 | Cron / scheduled jobs | Built (`packages/jobs` scheduler, `scheduled_jobs`) |
 | Named agent personas (per-persona system prompt/config) | Not built — one global `SYSTEM_PROMPT` today (TODO 16) |
 | MCP support | Built (`packages/mcp`, stdio transport) |
+| mini-coder — local coding-agent CLI | Built — see [`mini-coder-architecture.md`](mini-coder-architecture.md) and §3.10 |
 
 ---
 
@@ -149,10 +150,8 @@ has no collapsible panel, and reasoning would bury the answer). The JWT is cache
 `~/.mini-agent/token`, written 0600, and validated against `/auth/me` on start so an
 expired token drops to the sign-in prompt rather than failing on the first message.
 Agent replies are markdown, because the web app renders them — so the TUI renders them
-too rather than showing literal asterisks and fences. `markdown-parser.ts` (pure, tested)
-covers headings, emphasis, inline code, fenced blocks, lists, quotes, rules and links;
-`Markdown.tsx` maps that onto Ink. Tables and images are deliberately unsupported — a
-terminal cannot show them — and anything unrecognised falls through as plain text.
+too rather than showing literal asterisks and fences, with `<Markdown>` from
+`packages/ink-markdown` (§3.11), shared with mini-coder.
 
 Installable: `pnpm --filter @mini-agent/tui build` bundles it (esbuild) into one
 executable file, `dist/mini-agent.mjs`, which `npm i -g .` or a copy onto PATH turns
@@ -187,7 +186,9 @@ with a one-line message instead of a React stack trace.
   the model emits fenced ` ```tool_call ` blocks (`{"tool": "...", "input": {...}}`),
   parsed the same way on every provider. `ToolCallTextFilter` hides fence contents from
   a live stream token-by-token. `renderToolResults` sends results back as a plain user
-  turn.
+  turn. Also exported on its own as `@mini-agent/core/protocol` (runtime imports: zod
+  only), so the mini-coder CLI gets the wire format without the server tools or
+  `packages/search`.
 - **`tools.ts`** — the stateless default tools: `current_time`, `calculator` (shunting-
   yard, no `eval`), `web_search`, `scrape_url`, `fetch_url` (the latter three delegate to
   `packages/search`).
@@ -200,9 +201,20 @@ with a one-line message instead of a React stack trace.
 ### 3.2 `packages/llm` — chat transport
 
 Two methods, `invoke` and `stream`, over plain `{ role, content }` messages
-(`ChatClient`). `chatModel(provider, model, maxTokens)` is the only place a provider is
-named — `OpenAICompatClient` (OpenRouter/OpenAI), `AnthropicClient`, `GoogleClient`, each
-SDK imported lazily. Also owns embeddings (`embed`, `embedQuery`) for the vector stores.
+(`ChatClient`). `chatModel(provider, model, maxTokens, connection?)` is the only place a
+provider is named — `OpenAICompatClient` (OpenRouter/OpenAI), `AnthropicClient`,
+`GoogleClient`, each SDK imported lazily. Also owns embeddings (`embed`, `embedQuery`)
+for the vector stores.
+
+- **Cancellation** — both methods take `{ signal?: AbortSignal }`. It is handed to each
+  SDK the way that SDK wants it (a request option for OpenAI and Anthropic,
+  `config.abortSignal` for Gemini), and every stream also checks it per chunk, so no
+  delta arrives after an abort. A cancelled call throws the signal's `reason` whatever
+  the provider (`cancelled()` maps each SDK's own abort error to it); any other error
+  passes through unchanged. The server does not pass a signal today.
+- **Connection** — optional `{ apiKey?, baseUrl? }`. Unset fields fall back to
+  `@mini-agent/config`, which is how the server runs; the mini-coder CLI passes its own
+  settings here instead of going through the server's env config.
 
 ### 3.3 `packages/memory`
 
@@ -356,6 +368,149 @@ The only file allowed to touch `process.env` (`src/index.ts`). Zod-validated,
 re-parsed on every `getConfig()` call (not cached at import time) so tests can stub
 per-case and a long-lived server never needs a restart to pick up a changed var. See
 `.env.example` for the full variable list with explanations.
+
+### 3.10 mini-coder packages
+
+The local coding agent. Design in [`mini-coder-architecture.md`](mini-coder-architecture.md);
+none of these import `db`, `memory`, `jobs` or `agent`. `apps/coder` uses `mcp`, which
+brings `config` along, but never reads server config from it.
+
+- **`packages/coder-core`** — the controller and the loop, no UI code.
+  - `wire.ts` — everything the UI and the core say to each other, also exported as
+    `@mini-agent/coder-core/wire`: the `UiMessage` and `CoreMessage` types, and `Core`
+    (`send`, `onMessage`, `stop`), the core as a UI sees it. Plain objects passed to
+    functions, every message one-way: no ids, no replies, no validation.
+  - `session.ts` — `new Session(send, options)` takes the folder, model and mode, throws
+    if they are not usable, and sends `session`. `receive(message)` handles `submit`,
+    `abort`, `command` and `permission_answer`; one turn at a time. Commands: `/clear`,
+    `/undo` (restores the last turn's files; the model must re-read them), `/model`,
+    `/compact`. Each answers with a `notice`. A message `/name …` where `name` is a
+    skill is sent to the model as the instruction to load and follow that skill; the
+    screen and the log keep what was typed. The `session` message lists the tools and
+    skills, for the UI. `stop()` aborts the turn and waits.
+  - `loop.ts` — `runLoop`: stream the reply (tool_call blocks hidden from the screen),
+    run each call (bad calls become error results), add results to the history, repeat
+    until a reply has no calls. Limits: 100 model calls and 2M tokens per turn; tool
+    output capped at 30k chars. On abort the shown text is kept, marked interrupted.
+  - `gate.ts` — `checkPermission(mode, tool, input, rules)`. In order: the block list
+    and deny rules refuse in every mode, `bypass` included; reads run; `bypass` allows,
+    `plan` denies; allow rules allow; `accept-edits` allows writes; otherwise writes and
+    commands ask. A rule is `tool`, `tool(command)` (exactly) or `tool(command:*)` (that,
+    or that plus arguments), parsed by `parseRule`. `splitCommand` cuts a line on `;`,
+    `&`, `&&`, `||`, `|` and line breaks outside quotes: every command needs an allow
+    rule, one denied command denies the line. A line with substitution, redirection or
+    a subshell is not split, so only an exact rule covers it. The block list is regexes
+    over the whole command: `sudo`, deleting `/` or `~`, disk devices, a download piped
+    to a shell, fork bombs, `.env*` (not `.env.example`), `~/.ssh`, mini-coder's settings.
+    It is a pattern list, not a sandbox. Rules come from settings (`SessionOptions.rules`) and from "always" answers, which add an allow rule: a
+    file tool as a whole, a command only verbatim.
+  - `settings.ts` — `loadSettings(home, root)` merges `~/.mini-coder/settings.json`
+    with `<project>/.mini-coder/settings.json`: `model`, `mode`,
+    `permissions: { allow, deny }`, `providers: { <name>: { apiKey, baseUrl } }`,
+    `mcpServers: { <name>: { command, args, env, timeoutMs } }`, `sandbox`. The
+    project file is not trusted: only its `model`, `permissions.deny` and `sandbox: true`
+    count. A file
+    that is not valid JSON, or names an unknown mode, model or rule, is refused with its
+    path. Flags win over settings.
+  - `memory.ts` — `loadMemory(home, root)`, once per session: prompt text from
+    `AGENTS.md` (user, then project), `MEMORY.md` (user, then
+    `~/.mini-coder/projects/<slug>/MEMORY.md`) and a skill list (`skills/<name>/SKILL.md`
+    with a `description:` line; a project skill replaces a personal one of the same
+    name). Tools: `skill(name)` returns the file, and exists only when there are skills;
+    `remember(fact, scope)` appends one line; `recall(query)` (see `sessions.ts`). No size cap or cleanup yet.
+  - `sessions.ts` — the session log, `~/.mini-coder/projects/<slug>/sessions/<time>-<id>.jsonl`:
+    one JSON line per turn with `messages` (what a replay shows) and `history` (what the
+    turn added for the model); `/clear` and compaction write a `reset` line. A write that
+    fails is reported as a notice and the session goes on unsaved. `sessionFile(home,
+    root, resume)` names a new file or finds the latest. `recallTool` searches the
+    project's logs for turns containing every word of a query, newest first, 10 at most.
+  - Resume and compaction live in `session.ts`. A `logFile` that already has turns is
+    resumed: the history is rebuilt from it and one `replay` message is sent. Compaction
+    asks the model for a summary (`COMPACT_PROMPT` in `prompt.ts`) and replaces the
+    history with it: automatically before a turn that starts above
+    `limits.compactAtTokens` (120k), or on `/compact`, which runs as a turn of its own.
+    Never in the middle of a turn.
+  - `checkpoints.ts` (per-turn file snapshots for `/undo`), `prompt.ts` (rules → tools →
+    environment), `model.ts` (`provider:model`, default `openrouter:z-ai/glm-5.3-flash`).
+- **`packages/coder-tools`** — `read_file` (numbered lines, offset/limit, no binaries,
+  remembers the mtime), `edit_file` (needs a prior read and an unchanged file, an exact
+  unique match or `replace_all`, checkpoints first), `write_file` (creates a file and its
+  folders, or overwrites one that was read and is unchanged; checkpoints first), `glob`
+  (paths matching a glob, sorted, 200 at most), `grep` (JavaScript regex, line by line,
+  `path:line:text`, optional `path`, `glob` and `ignore_case`, 200 matches at most;
+  skips binaries and files over 1 MB), `bash` (own process group killed on timeout or
+  Esc, `cd` carried over via file descriptor 3, stdin closed, background jobs do not hang it; with `sandbox: true` in settings it runs under macOS
+  `sandbox-exec`: writes only inside the project, temp folders and package-manager
+  caches (`~/.npm`, `~/.cache`, `~/.pnpm-store`, `~/Library/Caches`, `~/Library/pnpm`),
+  no reading `~/.ssh` or `~/.mini-coder`, network open; on other systems a sandboxed
+  command refuses to run). `createTools({ sandbox })` builds the list. `glob` and `grep` share one walk in plain Node: no symlinks, no `.git` or
+  `node_modules`, no `.gitignore` (so no `rg` yet). `paths.ts`: realpath through the
+  nearest existing folder, inside the project, never `.env*` (except `.env.example`),
+  `~/.ssh`, `~/.mini-coder` or `.mini-coder/settings*.json`.
+- **`apps/coder`** — one command, one process. `src/main.ts` reads the flags, builds
+  the core and hands it to one of the two UIs; a model or mode that cannot be used
+  exits 2. `--resume` continues the folder's most recent session.
+  - `src/core.ts` — `startCore({ cwd, model?, mode? })` wires core + tools + `llm` (the
+    only place they meet) and returns a `Core`. Messages the session sends before the
+    UI sets its handler are kept and delivered first. It reads settings and memory from
+    `~/.mini-coder` and the project, and passes provider keys from settings to `llm`.
+    Async: it waits for the MCP servers first. `stop()` also shuts them down.
+  - `src/mcp.ts` — `connectMcp(servers)` starts each server in `mcpServers` with
+    `@mini-agent/mcp` and returns its tools as coder tools named `server__tool`, kind
+    `exec`, so each call asks first (a rule like `github__create_issue` allows one). Esc
+    stops waiting for a call; the server is not told. A server that does not start is
+    shown as an error notice and the session runs without it.
+  - `src/ui/headless.ts` — `mini-coder -p "<prompt>" [--model provider:model] [--mode …]`:
+    one turn, reply text on stdout, every permission prompt denied. Exit 0 on
+    `end_turn`, 1 on any other stop, 130 on Ctrl+C (the turn is stopped first), 2 on bad
+    arguments.
+  - `src/ui/fold.ts` — view state is `fold(state, action)` over the core's messages plus
+    what the user sent: an append-only list of user, assistant, tool and
+    notice items. Pure; sending a message marks the turn running at once.
+  - `src/ui/App.tsx`, `src/ui/interactive.tsx` — `mini-coder` with no prompt: the Ink
+    session (needs a terminal), laid out like Claude Code. A welcome box, then the
+    transcript: `> ` user lines, `⏺` replies rendered as markdown, and tool cards
+    (`⏺ Bash(cmd)`, `Read(path)`, `Update(path)`) with a `⎿` result — the first 4 output
+    lines, a line count for reads, a red/green diff for edits. Finished items are
+    printed once (`<Static>`); only the last one redraws. Below: a spinner with elapsed
+    time and tokens, queued messages, a bordered input box, and a footer with the model
+    and mode.
+  - Permission prompt: the command, or the edit as a diff, in full (capped at 20 lines
+    with a visible count), then three choices — yes, yes and don't ask again, no —
+    picked with ↑↓ + Enter or 1-3. It ignores keys for its first 600 ms, so typing
+    ahead cannot approve a call.
+  - Input (`src/ui/input.ts`, pure): one line, cursor with ← → Ctrl+A/E, Ctrl+U clears,
+    ↑ ↓ recall sent messages, pasted line breaks become spaces. Input typed during a
+    turn is queued and sent when the turn ends. Esc aborts the turn and drops the
+    queue. `/clear`, `/undo`, `/model`, `/compact` go to the core; `/help` lists them;
+    `/tools` lists the model's tools; `/<skill>` runs a skill;
+    `/quit` or Ctrl+C twice exits. Ink and React load only on this path.
+  - The `/` menu (`src/ui/menu.ts`, pure, plus `Menu` in `App.tsx`): while only the
+    command word is typed (`/`, `/co`), a list of matching actions and skills shows under
+    the input, 8 rows at a time. ↑ ↓ choose, Enter runs the chosen one, Tab completes it
+    and leaves room for arguments. A space closes the menu.
+  - Releases: `.github/workflows/release-coder.yml` runs on every `coder-v*` tag, apart
+    from the server's `v*` tags: typecheck, test, build with the tag minus `coder-` as
+    the version, and attach `mini-coder.mjs` plus its
+    sha256 to the GitHub release. `mini-coder --version` prints that version (`dev` for
+    a local build). Install and update steps are in [`coder.md`](coder.md).
+  - `build.ts` — `pnpm --filter @mini-agent/coder build` bundles everything into
+    `dist/mini-coder.mjs` (esbuild, one file, Node 22+), the package's `bin`. The API
+    key comes from the user's settings, else the environment (`OPENROUTER_API_KEY`, …).
+  - Tests: `test/headless.test.ts` runs `-p` as a real process against a local fake of
+    OpenRouter, including an MCP tool from `packages/mcp`'s fake server;
+    `test/mcp.test.ts` covers `connectMcp`. `test/ui.test.ts` covers the fold, the input line, and fails if `ui/`
+    imports anything but `coder-core/wire`, `ink-markdown`, Ink, React or Node. The Ink view has no automated
+    test.
+
+### 3.11 `packages/ink-markdown`
+
+`<Markdown>` for Ink, used by `apps/tui` and `apps/coder`. `markdown-parser.ts` (pure,
+tested) covers headings, emphasis, inline code, fenced blocks, lists, quotes, rules, links and
+tables; `Markdown.tsx` maps that onto Ink. A table is piped rows with a divider as the
+second line; its columns are as wide as their longest cell, capped at 60, and the last
+column wraps to fit the terminal. Images are deliberately unsupported, and anything
+unrecognised falls through as plain text.
 
 ---
 

@@ -122,3 +122,34 @@ describe("block markdown", () => {
     assert.deepEqual(parseBlocks(""), []);
   });
 });
+
+describe("tables", () => {
+  const cellText = (row: { text: string }[][]) => row.map(text);
+
+  it("reads a header, a divider and rows into cells", () => {
+    const blocks = parseBlocks(
+      ["Tools:", "", "| Tool | What it does |", "|------|:------------:|", "| `read_file` | Reads **text** |", "| a \\| b | |", "", "After."].join("\n"),
+    );
+    assert.deepEqual(kinds(blocks), ["paragraph", "blank", "table", "blank", "paragraph"]);
+
+    const table = blocks[2]!;
+    assert.ok(table.kind === "table");
+    assert.deepEqual(cellText(table.header), ["Tool", "What it does"]);
+    assert.deepEqual(table.rows.map(cellText), [
+      ["read_file", "Reads text"],
+      ["a | b", ""],
+    ]);
+    assert.deepEqual(table.rows[0]![0], [{ text: "read_file", code: true }]);
+  });
+
+  it("starts right after a paragraph line, with no blank line between", () => {
+    assert.deepEqual(kinds(parseBlocks("Here:\n| a | b |\n|---|---|\n| 1 | 2 |\nDone.")), ["paragraph", "table", "paragraph"]);
+  });
+
+  it("leaves rows without a divider as text: a lone piped line, or a table still streaming in", () => {
+    const streaming = parseBlocks("| Tool | What it does |");
+    assert.deepEqual(kinds(streaming), ["paragraph"]);
+    assert.equal(streaming[0]!.kind === "paragraph" && text(streaming[0]!.spans), "| Tool | What it does |");
+    assert.deepEqual(kinds(parseBlocks("| a | b |\n| 1 | 2 |")), ["paragraph", "paragraph"]);
+  });
+});

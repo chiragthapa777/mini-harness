@@ -1,0 +1,35 @@
+{
+  "name": "@mini-agent/coder",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "mini-coder": "dist/mini-coder.mjs"
+  },
+  "scripts": {
+    "dev": "tsx --env-file=../../.env src/main.ts",
+    "start": "node --env-file=../../.env dist/mini-coder.mjs",
+    "build": "tsx build.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@mini-agent/coder-core": "workspace:*",
+    "@mini-agent/coder-tools": "workspace:*",
+    "@mini-agent/ink-markdown": "workspace:*",
+    "@mini-agent/llm": "workspace:*",
+    "@mini-agent/mcp": "workspace:*",
+    "ink": "^7.1.1",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.2.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.7.2"
+  },
+  "files": [
+    "dist"
+  ]
+}

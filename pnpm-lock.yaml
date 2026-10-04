@@ -58,11 +58,54 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  apps/coder:
+    dependencies:
+      '@mini-agent/coder-core':
+        specifier: workspace:*
+        version: link:../../packages/coder-core
+      '@mini-agent/coder-tools':
+        specifier: workspace:*
+        version: link:../../packages/coder-tools
+      '@mini-agent/ink-markdown':
+        specifier: workspace:*
+        version: link:../../packages/ink-markdown
+      '@mini-agent/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
+      '@mini-agent/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
+      ink:
+        specifier: ^7.1.1
+        version: 7.1.1(@types/react@19.2.18)(react@19.2.8)
+      react:
+        specifier: ^19.2.0
+        version: 19.2.8
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      '@types/react':
+        specifier: ^19.2.0
+        version: 19.2.18
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   apps/tui:
     dependencies:
       '@mini-agent/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@mini-agent/ink-markdown':
+        specifier: workspace:*
+        version: link:../../packages/ink-markdown
       ink:
         specifier: ^7.1.1
         version: 7.1.1(@types/react@19.2.18)(react@19.2.8)
@@ -185,6 +228,47 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/coder-core:
+    dependencies:
+      '@mini-agent/core':
+        specifier: workspace:*
+        version: link:../core
+      '@mini-agent/llm':
+        specifier: workspace:*
+        version: link:../llm
+      zod:
+        specifier: ^4.0.0
+        version: 4.5.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/coder-tools:
+    dependencies:
+      '@mini-agent/coder-core':
+        specifier: workspace:*
+        version: link:../coder-core
+      zod:
+        specifier: ^4.0.0
+        version: 4.5.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/config:
     dependencies:
       zod:
@@ -244,6 +328,28 @@ importers:
       '@types/pg':
         specifier: ^8.11.10
         version: 8.23.1
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/ink-markdown:
+    dependencies:
+      ink:
+        specifier: ^7.1.1
+        version: 7.1.1(@types/react@19.2.18)(react@19.2.8)
+      react:
+        specifier: ^19.2.0
+        version: 19.2.8
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      '@types/react':
+        specifier: ^19.2.0
+        version: 19.2.18
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

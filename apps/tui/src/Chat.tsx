@@ -1,7 +1,7 @@
 import { Box, Text, useApp, useInput } from "ink";
 import { useRef, useState } from "react";
 import { streamChat, type AuthUser } from "./api.js";
-import { Markdown } from "./Markdown.js";
+import { Markdown } from "@mini-agent/ink-markdown";
 import { clearToken } from "./token.js";
 
 interface Turn {
