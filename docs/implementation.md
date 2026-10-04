@@ -490,6 +490,10 @@ brings `config` along, but never reads server config from it.
     command word is typed (`/`, `/co`), a list of matching actions and skills shows under
     the input, 8 rows at a time. ↑ ↓ choose, Enter runs the chosen one, Tab completes it
     and leaves room for arguments. A space closes the menu.
+  - Releases: `.github/workflows/release-coder.yml` runs on every `v*` tag: typecheck,
+    test, build with the tag as the version, and attach `mini-coder.mjs` plus its
+    sha256 to the GitHub release. `mini-coder --version` prints the tag (`dev` for a
+    local build). Install and update steps are in [`coder.md`](coder.md).
   - `build.ts` — `pnpm --filter @mini-agent/coder build` bundles everything into
     `dist/mini-coder.mjs` (esbuild, one file, Node 22+), the package's `bin`. The API
     key comes from the user's settings, else the environment (`OPENROUTER_API_KEY`, …).

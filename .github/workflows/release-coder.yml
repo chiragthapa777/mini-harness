@@ -1,0 +1,67 @@
+# Builds the mini-coder CLI and attaches it to the GitHub release of every
+# version tag, next to the images `release-images.yml` publishes for the same tag.
+#
+# The CLI is one JavaScript file that runs on Node 22+, so there is one build,
+# not one per platform. `releases/latest/download/mini-coder.mjs` then always
+# points at the newest one; docs/coder.md has the install and update commands.
+name: Release mini-coder
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Creating a release and uploading to it needs contents write; nothing else does.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Takes the pnpm version from `packageManager` in package.json.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # A release that fails its own tests should not be downloadable.
+      - name: Typecheck and test
+        run: |
+          pnpm --filter @mini-agent/coder --filter @mini-agent/coder-core --filter @mini-agent/coder-tools --filter @mini-agent/ink-markdown typecheck
+          pnpm --filter @mini-agent/coder --filter @mini-agent/coder-core --filter @mini-agent/coder-tools --filter @mini-agent/ink-markdown test
+
+      # The tag is what `mini-coder --version` prints.
+      - name: Build
+        env:
+          MINI_CODER_VERSION: ${{ github.ref_name }}
+        run: pnpm --filter @mini-agent/coder build
+
+      - name: Check the bundle runs
+        run: test "$(node apps/coder/dist/mini-coder.mjs --version)" = "mini-coder ${{ github.ref_name }}"
+
+      - name: Checksum
+        working-directory: apps/coder/dist
+        run: sha256sum mini-coder.mjs > mini-coder.mjs.sha256
+
+      # Pre-release tags (v1.4.0-rc.1) are marked as such, so they never become
+      # "latest". `--clobber` lets a re-run of the same tag replace the files.
+      - name: Publish to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes \
+            ${{ contains(github.ref_name, '-') && '--prerelease' || '' }}
+          gh release upload "$TAG" apps/coder/dist/mini-coder.mjs apps/coder/dist/mini-coder.mjs.sha256 --clobber

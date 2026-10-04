@@ -27,6 +27,8 @@ await build({
     ].join("\n"),
   },
   alias: { "react-devtools-core": resolve(here, "devtools-stub.ts") },
+  // The release workflow passes the tag; a local build says "dev".
+  define: { MINI_CODER_VERSION: JSON.stringify(process.env.MINI_CODER_VERSION ?? "dev") },
   logLevel: "info",
 });
 

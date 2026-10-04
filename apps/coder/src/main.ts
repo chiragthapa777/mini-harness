@@ -10,7 +10,10 @@ import { runHeadless } from "./ui/headless.js";
 const USAGE = `usage:
   mini-coder [--model provider:model] [--mode …]     interactive session
   mini-coder -p "<prompt>" [--model provider:model] [--mode ${PERMISSION_MODES.join("|")}]
-  --resume    continue the most recent session in this folder`;
+  --resume    continue the most recent session in this folder
+  --version   print the version`;
+
+declare const MINI_CODER_VERSION: string | undefined;
 
 function fail(message: string): never {
   console.error(message);
@@ -25,6 +28,7 @@ function readArgs() {
         model: { type: "string" },
         mode: { type: "string" },
         resume: { type: "boolean" },
+        version: { type: "boolean", short: "v" },
       },
       allowPositionals: true,
     });
@@ -34,6 +38,11 @@ function readArgs() {
 }
 
 const { values, positionals } = readArgs();
+if (values.version) {
+  // Replaced with the release tag when bundled; run from source there is nothing to replace.
+  console.log(`mini-coder ${typeof MINI_CODER_VERSION === "undefined" ? "dev" : MINI_CODER_VERSION}`);
+  process.exit(0);
+}
 if (positionals.length > 0) fail(`mini-coder: unexpected argument "${positionals[0]}"\n${USAGE}`);
 
 const mode = values.mode as PermissionMode | undefined;
