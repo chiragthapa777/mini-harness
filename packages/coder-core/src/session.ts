@@ -16,6 +16,8 @@ export interface SessionOptions {
   mode?: PermissionMode;
   /** Permission rules as text, like `bash(npm test:*)`. Deny wins over allow. */
   rules?: { allow?: string[]; deny?: string[] };
+  /** Text for the system prompt: AGENTS.md, remembered facts, the skill list. */
+  memory?: string;
   limits?: Partial<Limits>;
 }
 
@@ -62,6 +64,7 @@ export class Session {
       root: this.root,
       platform: process.platform,
       date: new Date().toISOString().slice(0, 10),
+      memory: options.memory,
     });
     this.sendSession();
   }

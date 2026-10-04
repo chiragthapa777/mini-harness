@@ -4,7 +4,7 @@ import type { Tool } from "./tool.js";
 /**
  * The system prompt is config, versioned here rather than inlined in the
  * session. Order is stable-first so provider prefix caching can reuse it:
- * rules, then the tool catalog, then the environment — which is captured once
+ * rules, then the tool catalog, then memory, then the environment — which is captured once
  * per session, never refreshed per turn, or the cache would break every turn.
  */
 export const PROMPT_VERSION = "coder-2";
@@ -25,6 +25,8 @@ export interface Environment {
   root: string;
   platform: string;
   date: string;
+  /** AGENTS.md, remembered facts and the skill list, already formatted. */
+  memory?: string;
 }
 
 export function buildSystemPrompt(tools: Tool[], env: Environment): string {
@@ -35,5 +37,5 @@ export function buildSystemPrompt(tools: Tool[], env: Environment): string {
     `- date: ${env.date}`,
   ].join("\n");
 
-  return [RULES, renderToolCatalog(tools), environment].filter(Boolean).join("\n\n");
+  return [RULES, renderToolCatalog(tools), env.memory, environment].filter(Boolean).join("\n\n");
 }

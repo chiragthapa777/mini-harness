@@ -401,6 +401,18 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
     It is a pattern list, not a sandbox. Rules come from `SessionOptions.rules` (nothing
     supplies them until phase 6) and from "always" answers, which add an allow rule: a
     file tool as a whole, a command only verbatim.
+  - `settings.ts` — `loadSettings(home, root)` merges `~/.mini-coder/settings.json`
+    with `<project>/.mini-coder/settings.json`: `model`, `mode`,
+    `permissions: { allow, deny }`, `providers: { <name>: { apiKey, baseUrl } }`. The
+    project file is not trusted: only its `model` and `permissions.deny` count. A file
+    that is not valid JSON, or names an unknown mode, model or rule, is refused with its
+    path. Flags win over settings.
+  - `memory.ts` — `loadMemory(home, root)`, once per session: prompt text from
+    `AGENTS.md` (user, then project), `MEMORY.md` (user, then
+    `~/.mini-coder/projects/<slug>/MEMORY.md`) and a skill list (`skills/<name>/SKILL.md`
+    with a `description:` line; a project skill replaces a personal one of the same
+    name). Tools: `skill(name)` returns the file, and exists only when there are skills;
+    `remember(fact, scope)` appends one line. No size cap or cleanup yet.
   - `checkpoints.ts` (per-turn file snapshots for `/undo`), `prompt.ts` (rules → tools →
     environment), `model.ts` (`provider:model`, default `openrouter:z-ai/glm-5.3-flash`).
 - **`packages/coder-tools`** — `read_file` (numbered lines, offset/limit, no binaries,
@@ -420,7 +432,8 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
   exits 2.
   - `src/core.ts` — `startCore({ cwd, model?, mode? })` wires core + tools + `llm` (the
     only place they meet) and returns a `Core`. Messages the session sends before the
-    UI sets its handler are kept and delivered first.
+    UI sets its handler are kept and delivered first. It reads settings and memory from
+    `~/.mini-coder` and the project, and passes provider keys from settings to `llm`.
   - `src/ui/headless.ts` — `mini-coder -p "<prompt>" [--model provider:model] [--mode …]`:
     one turn, reply text on stdout, every permission prompt denied. Exit 0 on
     `end_turn`, 1 on any other stop, 130 on Ctrl+C (the turn is stopped first), 2 on bad
@@ -447,7 +460,7 @@ none of these import `db`, `memory`, `jobs`, `agent`, `config` or `mcp`.
     `/quit` or Ctrl+C twice exits. Ink and React load only on this path.
   - `build.ts` — `pnpm --filter @mini-agent/coder build` bundles everything into
     `dist/mini-coder.mjs` (esbuild, one file, Node 22+), the package's `bin`. The API
-    key comes from the environment (`OPENROUTER_API_KEY`, …) until phase 6.
+    key comes from the user's settings, else the environment (`OPENROUTER_API_KEY`, …).
   - Tests: `test/headless.test.ts` runs `-p` as a real process against a local fake of
     OpenRouter. `test/ui.test.ts` covers the fold, the input line, and fails if `ui/`
     imports anything but `coder-core/wire`, `ink-markdown`, Ink, React or Node. The Ink view has no automated

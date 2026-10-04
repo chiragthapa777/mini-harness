@@ -11,9 +11,8 @@ Design: [architecture](mini-coder-architecture.md), [memory](mini-coder-memory.m
 ## Layout
 
 - `apps/coder`: `main.ts`, `ui/` (Ink, headless), `core.ts` (builds the session). One process.
-- `packages/coder-core`: session, loop, permission gate, context, memory, MCP; `wire.ts` holds the UI ↔ core messages.
+- `packages/coder-core`: session, loop, permission gate, settings, memory, MCP; `wire.ts` holds the UI ↔ core messages.
 - `packages/coder-tools`: tools, path guard, checkpoints.
-- `packages/coder-config`: layered settings.
 
 ## Settled
 
@@ -36,7 +35,7 @@ Design: [architecture](mini-coder-architecture.md), [memory](mini-coder-memory.m
 | 4 | Ink UI: fold, transcript, tool cards, permission prompt, Esc, input queue. **Done.** | interactive session works; `ui/` import boundary test passes |
 | 4b | Single process: `core.ts` replaces `serve.ts` and `ui/core-process.ts`; `wire.ts` keeps only the types. **Done.** | `-p` and the Ink session run with no child process |
 | 5 | Permissions: rules, modes, bash splitting, deny list; `write_file`, `glob`, `grep`. **Done.** | table-driven rule tests pass |
-| 6 | `coder-config`, `/model`; `AGENTS.md`, skills, `remember` | layers merge; deny wins; skills load on demand |
+| 6 | Settings, `/model`; `AGENTS.md`, skills, `remember`. **Done.** Settings are one file in `coder-core`, not a `coder-config` package. | layers merge; deny wins; skills load on demand |
 | 7 | Episodic memory: session log, `resume`, summaries, `recall`; compaction | resume rebuilds by replay; long session compacts |
 | 8 | MCP (official SDK) | MCP tool runs after approval |
 | 9 | Opt-in: OpenTelemetry, bash sandbox | off by default |
@@ -47,4 +46,5 @@ Each phase ends with typecheck and tests green.
 
 - New loop in `coder-core`; the server loop is untouched.
 - One process. The UI ↔ core split stays as message types and an import boundary, not as a process boundary: nothing else will drive the core, and the pipe cost more to read than it bought.
+- A project's settings file is not trusted: it can pick the model and add deny rules, nothing else. Allow rules, the mode and provider keys come only from `~/.mini-coder/settings.json`.
 - Distribution: esbuild single-file Node bundle (Node 22+).

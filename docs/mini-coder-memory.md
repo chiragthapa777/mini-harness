@@ -4,16 +4,7 @@ Where mini-coder keeps what outlives a turn. Plain files, no database, no vector
 
 ## Where it lives
 
-A module inside `coder-core`, not a package. Only `Session` uses it.
-
-```
-packages/coder-core/src/memory/
-  paths.ts        resolves the folders below
-  procedural.ts   AGENTS.md files + skill index
-  semantic.ts     MEMORY.md read / remember / size cap
-  episodic.ts     session log, session index, recall
-  index.ts        the Memory interface Session depends on
-```
+One file inside `coder-core`, `src/memory.ts`, not a package. `loadMemory(home, root)` reads everything once at session start and returns the text for the system prompt plus the `skill` and `remember` tools. The episodic part (phase 7) is not built.
 
 ## On disk
 
@@ -46,27 +37,13 @@ The path guard denies `~/.mini-coder/` to the file tools, so only the memory mod
 
 **Procedural.** Loaded directly, with no search. `AGENTS.md` stays human-owned; the agent never edits it.
 
-**Semantic.** The `remember(fact, scope)` tool appends one line to the user's or the project's `MEMORY.md`. It is a write, so it goes through the permission gate (default: ask). That matters because a remembered line reaches every future session. A project's facts fit in the prompt, so there is no retrieval step. Each file is capped at about 200 lines. Past that, a cheap model call at session end merges duplicates and drops stale lines.
+**Semantic.** The `remember(fact, scope)` tool appends one line to the user's or the project's `MEMORY.md`. It is a write, so it goes through the permission gate (default: ask; `accept-edits` lets it through). That matters because a remembered line reaches every future session. A project's facts fit in the prompt, so there is no retrieval step. A remembered fact reaches the prompt from the next session on. Planned, not built: a cap at about 200 lines, past which a cheap model call at session end merges duplicates and drops stale lines. For now a file only grows, and its first 20,000 characters are loaded.
 
 **Episodic.** The session log is written anyway, for resume and as the trace. At session end, one cheap model call writes a title and a 3-line summary to `index.jsonl`. `recall(query)` runs a text search over the index, then the matching logs. A system-prompt line tells the model it exists. Nothing is preloaded, so the prompt stays small and cache-stable.
 
 ## Working memory
 
 This is the context sent on each call: system prompt plus history. It is built by the context builder, not stored. Compaction rewrites the history; the session log keeps everything, so resume and recall still see the full session.
-
-## Interface
-
-```ts
-interface Memory {
-  procedural(): Promise<{ agents: string[]; skills: SkillIndexEntry[] }>;
-  facts(): Promise<string>;
-  remember(fact: string, scope: "user" | "project"): Promise<void>;
-  append(entry: SessionEntry): Promise<void>;     // session log
-  load(sessionId: string): Promise<SessionEntry[]>;
-  endSession(summary: SessionSummary): Promise<void>;
-  recall(query: string): Promise<RecallHit[]>;
-}
-```
 
 ## Not now
 

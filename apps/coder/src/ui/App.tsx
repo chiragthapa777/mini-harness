@@ -26,6 +26,8 @@ const TOOL_LABELS: Record<string, string> = {
   write_file: "Write",
   glob: "Glob",
   grep: "Grep",
+  skill: "Skill",
+  remember: "Remember",
 };
 
 const HELP = [
@@ -399,7 +401,7 @@ function inputText(input: unknown): string {
 
 function inputSummary(input: unknown): string {
   const fields = asFields(input);
-  const main = fields.command ?? fields.pattern ?? fields.path;
+  const main = fields.command ?? fields.pattern ?? fields.path ?? fields.name ?? fields.fact;
   const text = (typeof main === "string" ? main : (JSON.stringify(input) ?? "")).replace(/\s+/g, " ");
   return text.length > 100 ? `${text.slice(0, 100)}…` : text;
 }

@@ -116,7 +116,8 @@ What is given up: a UI written in another language, and a UI that survives a cor
 - `ChatClient` (`packages/llm`)
 - `Tool { name, schema, run(input, { signal, onOutput }) }`
 - `checkPermission(mode, tool, input, rules) → allow | deny | ask`
-- `Memory`: skills, `AGENTS.md`, facts, session log ([mini-coder-memory.md](mini-coder-memory.md))
+- Memory: `AGENTS.md`, facts and the skill list as prompt text, plus the `skill` and `remember` tools ([mini-coder-memory.md](mini-coder-memory.md))
+- Settings: `loadSettings(home, root)`, read by `core.ts` and passed in as plain options
 
 Tests call `Session.receive` and collect what it sends, with a fake `ChatClient`: the real code path, no streams.
 
