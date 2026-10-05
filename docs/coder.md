@@ -79,6 +79,8 @@ A project can have its own `.mini-coder/settings.json`, but it is not trusted: o
 
 Run the three install commands again: they replace the file with the newest release. `mini-coder --version` shows what you have. Settings, memory and session logs live in `~/.mini-coder` and are not touched.
 
+Choices made in a session are saved there too. "Don't ask again" in a permission prompt saves the rule for this project (`~/.mini-coder/projects/<slug>/settings.json`) or for every project (`~/.mini-coder/settings.json`). `/model` saves the model for this project.
+
 A specific version: replace `latest/download` with `download/coder-v0.3.0`.
 
 ## Uninstall

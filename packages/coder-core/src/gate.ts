@@ -4,7 +4,7 @@ import type { Tool } from "./tool.js";
 export type Verdict =
   | { decision: "allow" }
   | { decision: "deny"; reason: string }
-  | { decision: "ask"; reason: string };
+  | { decision: "ask" };
 
 /**
  * A rule names a tool, and for a command tool optionally which commands:
@@ -44,7 +44,7 @@ const BLOCKED: [RegExp, string][] = [
   [/:\(\)\s*\{.*\};\s*:/, "a fork bomb"],
   [/(^|[\s/"'=])\.env(?!\.example)(\.[\w.-]+)?(\s|$|["';|&)])/, "reading or changing a .env file"],
   [/(~|\$HOME|\/Users\/[^/\s]+|\/home\/[^/\s]+)\/\.ssh\b/, "touching ~/.ssh"],
-  [/\.mini-coder\/settings(\.local)?\.json/, "touching mini-coder's settings"],
+  [/\.mini-coder\/(projects\/[^/\s]+\/)?settings(\.local)?\.json/, "touching mini-coder's settings"],
 ];
 
 /**
@@ -128,7 +128,13 @@ export function checkPermission(mode: PermissionMode, tool: Tool, input: unknown
   if (wholeAllowed || eachAllowed) return { decision: "allow" };
 
   if (mode === "accept-edits" && tool.kind === "write") return { decision: "allow" };
-  return { decision: "ask", reason: tool.kind === "write" ? "file changes ask first" : "commands ask first" };
+  return { decision: "ask" };
+}
+
+/** A rule as settings.json writes it: the reverse of `parseRule`. */
+export function formatRule(rule: Rule): string {
+  if (rule.command === undefined) return rule.tool;
+  return `${rule.tool}(${rule.command}${rule.prefix ? ":*" : ""})`;
 }
 
 /**

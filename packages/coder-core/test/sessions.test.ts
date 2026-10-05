@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
-import { readRecords, recallTool, sessionFile } from "../src/sessions.js";
+import { recallTool } from "../src/sessions.js";
+import { SessionLog, Store } from "../src/store.js";
 import type { ToolContext } from "../src/tool.js";
 import { harness, shellTool, tempProject, toolCall } from "./helpers.js";
 
@@ -37,7 +38,7 @@ test("resume rebuilds the screen by replay and gives the model its history back"
   assert.equal(seen[5]!.content, "anything else?");
 
   // Both sessions wrote to the one file, a line per turn.
-  assert.equal(readRecords(logFile).length, 2);
+  assert.equal(new SessionLog(logFile).read().length, 2);
 });
 
 test("resume after /clear: the screen keeps everything, the model starts over", async () => {
@@ -65,7 +66,7 @@ test("an interrupted turn is logged as it was shown, and a broken line is skippe
   await first.session.stop();
   await writeFile(logFile, (await readFile(logFile, "utf8")) + '{"at": "cut sho');
 
-  const [record, ...rest] = readRecords(logFile);
+  const [record, ...rest] = new SessionLog(logFile).read();
   assert.deepEqual(rest, []);
   assert.deepEqual(record!.messages.at(-1), { type: "turn_end", stopReason: "aborted" });
   assert.deepEqual(record!.history.map((m) => m.content), ["question", "Let me think about\n\n[interrupted by the user]"]);
@@ -126,7 +127,8 @@ test("recall finds earlier turns that contain every word, newest first", async (
   await newer.turn("how do I apply the migration?");
   await newer.turn("how does deploy work?");
 
-  const recall = (query: string) => recallTool(folder).run({ query }, {} as ToolContext);
+  const logs = () => ["2026-01-01.jsonl", "2026-02-01.jsonl"].map((name) => new SessionLog(join(folder, name)));
+  const recall = (query: string) => recallTool(logs).run({ query }, {} as ToolContext);
   const today = new Date().toISOString().slice(0, 10);
   assert.equal(
     await recall("Migration"),
@@ -139,10 +141,10 @@ test("recall finds earlier turns that contain every word, newest first", async (
 
 test("the session file is new each run, or the latest one when resuming", async () => {
   const home = await tempProject();
-  const root = "/work/my-app";
-  assert.throws(() => sessionFile(home, root, true), /no earlier session/);
+  const store = new Store(home, "/work/my-app");
+  assert.throws(() => store.openSession(true), /no earlier session/);
 
-  const fresh = sessionFile(home, root, false);
+  const fresh = store.openSession(false).file;
   assert.equal(dirname(fresh), join(home, "projects", "-work-my-app", "sessions"));
   assert.match(basename(fresh), /^\d{4}-\d{2}-\d{2}T[\d-]+Z-[0-9a-f]{8}\.jsonl$/);
 
@@ -151,5 +153,9 @@ test("the session file is new each run, or the latest one when resuming", async 
   await a.turn("old");
   const b = await harness({ replies: ["x"], logFile: join(folder, "2026-03-01T00-00-00-000Z-bbbbbbbb.jsonl") });
   await b.turn("new");
-  assert.equal(basename(sessionFile(home, root, true)), "2026-03-01T00-00-00-000Z-bbbbbbbb.jsonl");
+  assert.equal(basename(store.openSession(true).file), "2026-03-01T00-00-00-000Z-bbbbbbbb.jsonl");
+  assert.deepEqual(store.sessionLogs().map((log) => basename(log.file)), [
+    "2026-01-01T00-00-00-000Z-aaaaaaaa.jsonl",
+    "2026-03-01T00-00-00-000Z-bbbbbbbb.jsonl",
+  ]);
 });

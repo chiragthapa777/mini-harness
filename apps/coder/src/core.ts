@@ -5,7 +5,8 @@ import {
   loadMemory,
   loadSettings,
   Session,
-  sessionFile,
+  Store,
+  updateSettings,
   type Core,
   type CoreMessage,
   type PermissionMode,
@@ -19,8 +20,8 @@ const MAX_OUTPUT_TOKENS = 16_000;
 
 /**
  * Builds the core for a UI to drive — the one file that imports coder-core,
- * coder-tools and llm together, reads settings and memory from disk, and
- * starts the MCP servers.
+ * coder-tools and llm together, reads settings and memory from disk, gives
+ * the session a way to save settings, and starts the MCP servers.
  * Flags win over settings. `resume` continues the folder's latest session.
  * Throws when the folder, the model or a settings file is not usable, or
  * there is nothing to resume.
@@ -35,23 +36,24 @@ export async function startCore(options: {
   const early: CoreMessage[] = [];
   let handler = (message: CoreMessage): void => void early.push(message);
 
-  const home = join(homedir(), ".mini-coder");
-  const root = realpathSync(options.cwd);
-  const settings = loadSettings(home, root);
-  const memory = loadMemory(home, root);
-  const logFile = sessionFile(home, root, options.resume ?? false);
+  // Everything mini-coder keeps on disk goes through the store.
+  const store = new Store(join(homedir(), ".mini-coder"), realpathSync(options.cwd));
+  const settings = loadSettings(store);
+  const memory = loadMemory(store);
+  const log = store.openSession(options.resume ?? false);
   const mcp = await connectMcp(settings.mcpServers ?? {});
 
   let session: Session;
   try {
     session = new Session((message) => handler(message), {
-      cwd: root,
+      cwd: store.root,
       model: options.model ?? settings.model,
       mode: options.mode ?? settings.mode,
       rules: settings.permissions,
       memory: memory.prompt,
       skills: memory.skills,
-      logFile,
+      log,
+      saveSettings: (scope, edit) => updateSettings(store, scope, edit),
       tools: [...createTools({ sandbox: settings.sandbox }), ...memory.tools, ...mcp.tools],
       createModel: ({ provider, model }) =>
         chatModel(provider, model, MAX_OUTPUT_TOKENS, settings.providers?.[provider]),

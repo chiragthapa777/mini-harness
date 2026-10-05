@@ -1,11 +1,11 @@
 export type { Tool, ToolContext, ToolKind } from "./tool.js";
-export { checkPermission, alwaysRule, parseRule, splitCommand, type Rule, type Rules, type Verdict } from "./gate.js";
+export { checkPermission, alwaysRule, formatRule, parseRule, splitCommand, type Rule, type Rules, type Verdict } from "./gate.js";
 export { Checkpoints } from "./checkpoints.js";
 export { runLoop, capOutput, DEFAULT_LIMITS, type Limits, type LoopOptions } from "./loop.js";
 export { DEFAULT_MODEL, parseModel, formatModel, type ModelSpec } from "./model.js";
 export { buildSystemPrompt, type Environment } from "./prompt.js";
 export { Session, type SessionOptions } from "./session.js";
-export { loadSettings, type Settings } from "./settings.js";
+export { addAllowRule, loadSettings, updateSettings, type Settings, type SettingsFile } from "./settings.js";
 export { loadMemory } from "./memory.js";
-export { sessionFile } from "./sessions.js";
+export { SessionLog, Store, type SessionRecord, type SettingsSource } from "./store.js";
 export * from "./wire.js";

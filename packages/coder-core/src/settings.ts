@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { z } from "zod";
 import { parseRule } from "./gate.js";
 import { parseModel } from "./model.js";
-import { PERMISSION_MODES } from "./wire.js";
+import type { SettingsSource, Store } from "./store.js";
+import { PERMISSION_MODES, type SettingsScope } from "./wire.js";
 
 const connection = z.object({ apiKey: z.string().optional(), baseUrl: z.string().optional() });
 
@@ -32,50 +31,79 @@ const schema = z.object({
 });
 
 export type Settings = z.infer<typeof schema>;
+/** A settings file as written: every key optional. */
+export type SettingsFile = z.input<typeof schema>;
 
-function readSettings(file: string): Settings {
-  let text: string;
-  try {
-    text = readFileSync(file, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
-    throw err;
-  }
+/** Throws when the settings are not usable: an unknown key value, model or rule. */
+function check(value: unknown): Settings {
+  const settings = schema.parse(value);
+  if (settings.model !== undefined) parseModel(settings.model);
+  for (const rule of [...(settings.permissions?.allow ?? []), ...(settings.permissions?.deny ?? [])]) parseRule(rule);
+  return settings;
+}
 
+/** One file as written, checked. No file, or an empty one, is no settings. Throws naming the file. */
+function readSettingsFile(store: Store, source: SettingsSource): { raw: SettingsFile; settings: Settings } {
   try {
-    const settings = schema.parse(JSON.parse(text));
-    if (settings.model !== undefined) parseModel(settings.model);
-    for (const rule of [...(settings.permissions?.allow ?? []), ...(settings.permissions?.deny ?? [])]) parseRule(rule);
-    return settings;
+    const text = store.readSettings(source);
+    const raw = (text.trim() ? JSON.parse(text) : {}) as SettingsFile;
+    return { raw, settings: check(raw) };
   } catch (err) {
     const problem = err instanceof z.ZodError ? z.prettifyError(err) : (err as Error).message;
-    throw new Error(`${file}: ${problem}`);
+    throw new Error(`${store.settingsPath(source)}: ${problem}`);
   }
 }
 
 /**
- * Merges the user's settings (`<home>/settings.json`) with the project's
- * (`<root>/.mini-coder/settings.json`).
+ * Merges three files, most specific first:
  *
- * The project file comes with the repository, so it is not trusted to loosen
- * anything: from it only `model`, `permissions.deny` and `sandbox: true`
- * count (each only tightens). Its `mode`,
- * `permissions.allow`, `providers` and `mcpServers` are ignored — otherwise
- * cloning a repository could hand it your shell or your API keys.
+ * - local: this project's settings, kept by mini-coder outside the project.
+ *   Written by the user or by mini-coder, so trusted like the user's.
+ * - repo: `<root>/.mini-coder/settings.json`. It comes with the repository,
+ *   so it is not trusted to loosen anything: only its `model`,
+ *   `permissions.deny` and `sandbox: true` count. Otherwise cloning a
+ *   repository could hand it your shell or your API keys.
+ * - user: the user's settings, for every project.
+ *
+ * Allow and deny rules add up; for anything else the first file that sets it wins.
  */
-export function loadSettings(home: string, root: string): Settings {
-  const user = readSettings(join(home, "settings.json"));
-  const project = readSettings(join(root, ".mini-coder", "settings.json"));
+export function loadSettings(store: Store): Settings {
+  const local = readSettingsFile(store, "project").settings;
+  const repo = readSettingsFile(store, "repo").settings;
+  const user = readSettingsFile(store, "user").settings;
 
   return {
-    model: project.model ?? user.model,
-    mode: user.mode,
-    providers: user.providers,
-    mcpServers: user.mcpServers,
-    sandbox: (user.sandbox ?? false) || (project.sandbox ?? false),
+    model: local.model ?? repo.model ?? user.model,
+    mode: local.mode ?? user.mode,
+    providers: local.providers ?? user.providers,
+    mcpServers: local.mcpServers ?? user.mcpServers,
+    sandbox: (local.sandbox ?? user.sandbox ?? false) || (repo.sandbox ?? false),
     permissions: {
-      allow: user.permissions?.allow ?? [],
-      deny: [...(user.permissions?.deny ?? []), ...(project.permissions?.deny ?? [])],
+      allow: [...(local.permissions?.allow ?? []), ...(user.permissions?.allow ?? [])],
+      deny: [...(local.permissions?.deny ?? []), ...(user.permissions?.deny ?? []), ...(repo.permissions?.deny ?? [])],
     },
   };
+}
+
+/**
+ * Changes the user's or the local settings and keeps everything else in the
+ * file. A file that is not valid is refused rather than overwritten, and a
+ * change that would not load is never written.
+ */
+export async function updateSettings(
+  store: Store,
+  scope: SettingsScope,
+  edit: (settings: SettingsFile) => void,
+): Promise<void> {
+  const { raw } = readSettingsFile(store, scope);
+  edit(raw);
+  check(raw);
+  await store.writeSettings(scope, raw);
+}
+
+/** Adds an allow rule, like `bash(npm test)`, once. */
+export function addAllowRule(settings: SettingsFile, rule: string): void {
+  const permissions = (settings.permissions ??= {});
+  const allow = (permissions.allow ??= []);
+  if (!allow.includes(rule)) allow.push(rule);
 }
