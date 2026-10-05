@@ -308,6 +308,19 @@ function ItemView({ item }: { item: Item }) {
         </Box>
       );
 
+    case "thinking":
+      if (!item.text.trim()) return null;
+      return (
+        <Box marginTop={1}>
+          <Text dimColor>✻ </Text>
+          <Box flexShrink={1}>
+            <Text dimColor italic>
+              {item.text.trim()}
+            </Text>
+          </Box>
+        </Box>
+      );
+
     case "tool":
       return <ToolCard item={item} />;
 
@@ -386,10 +399,11 @@ function Diff({ removed, added, max }: { removed: unknown; added: unknown; max: 
 
 function permissionOptions(tool: string): { label: string; decision: Decision }[] {
   // The core's "always" covers a command only verbatim, a file tool as a whole.
-  const scope = tool === "bash" ? "for this exact command" : `for ${TOOL_LABELS[tool] ?? tool}`;
+  const what = tool === "bash" ? "this exact command" : (TOOL_LABELS[tool] ?? tool);
   return [
     { label: "Yes", decision: "allow" },
-    { label: `Yes, and don't ask again ${scope} this session`, decision: "always" },
+    { label: `Yes, and don't ask again for ${what} in this project`, decision: "always_project" },
+    { label: `Yes, and don't ask again for ${what} in any project`, decision: "always_user" },
     { label: "No, and let the model try something else", decision: "deny" },
   ];
 }
@@ -422,7 +436,6 @@ function PermissionPrompt({ params, choice }: { params: PermissionParams; choice
             {hidden > 0 && <Text color="yellow">{`… ${hidden} more lines not shown`}</Text>}
           </>
         )}
-        <Text dimColor>{params.reason}</Text>
       </Box>
       <Text>Do you want to proceed?</Text>
       {permissionOptions(params.tool).map((option, index) => (
@@ -431,7 +444,7 @@ function PermissionPrompt({ params, choice }: { params: PermissionParams; choice
           {index + 1}. {option.label}
         </Text>
       ))}
-      <Text dimColor>↑↓ and enter, or 1-3 · esc interrupts the turn</Text>
+      <Text dimColor>↑↓ and enter, or 1-4 · esc interrupts the turn</Text>
     </Box>
   );
 }

@@ -19,7 +19,7 @@ test("a full turn: tool call, permission, result, final reply", async () => {
   assert.deepEqual(summary(h.events), ["start shell", "end ok: ran npm test", "turn_end end_turn"]);
   assert.ok(h.events.some((e) => e.type === "tool_output" && e.chunk === "line 1\n"));
   assert.equal(shownText(h.events), "Running it.\nTests pass."); // the tool_call block is hidden
-  assert.deepEqual(h.asked, [{ callId: "call_1", tool: "shell", input: { command: "npm test" }, reason: "commands ask first" }]);
+  assert.deepEqual(h.asked, [{ callId: "call_1", tool: "shell", input: { command: "npm test" } }]);
 
   // The second model call got the tool result back.
   const second = h.model.seen[1]!;
@@ -40,7 +40,7 @@ test("a denied call is reported to the model", async () => {
   assert.ok(summary(h.events).includes("end error: not run: the user denied this call"));
 });
 
-test("'always' covers a command only verbatim", async () => {
+test("'always' covers a command only verbatim, and is saved to the chosen settings", async () => {
   const h = await harness({
     tools: [shellTool],
     replies: [
@@ -49,10 +49,18 @@ test("'always' covers a command only verbatim", async () => {
       toolCall("shell", { command: "rm -rf build" }),
       "done",
     ],
-    answers: ["always", "deny"],
+    answers: ["always_project", "deny"],
   });
   await h.turn("go");
   assert.deepEqual(h.asked.map((a) => (a.input as { command: string }).command), ["npm test", "rm -rf build"]);
+  assert.deepEqual(h.saved, { project: { permissions: { allow: ["shell(npm test)"] } }, user: {} });
+});
+
+test("'always' for every project saves to the user's settings", async () => {
+  const write: Tool = { ...echoTool, name: "write", kind: "write" };
+  const h = await harness({ tools: [write], replies: [toolCall("write", { text: "x" }), "ok"], answers: ["always_user"] });
+  await h.turn("write");
+  assert.deepEqual(h.saved, { project: {}, user: { permissions: { allow: ["write"] } } });
 });
 
 test("plan mode refuses writes without asking", async () => {
@@ -168,7 +176,8 @@ test("/clear and /model", async () => {
   assert.deepEqual(h.model.seen[1]!.map((m) => m.role), ["system", "user"]);
 
   assert.equal((await h.command("model")).text, "model: openrouter:z-ai/glm-5.3-flash");
-  assert.equal((await h.command("model", "anthropic:claude-opus-5")).text, "model set to anthropic:claude-opus-5");
+  assert.equal((await h.command("model", "anthropic:claude-opus-5")).text, "model set to anthropic:claude-opus-5 for this project");
+  assert.deepEqual(h.saved.project, { model: "anthropic:claude-opus-5" });
   const session = h.events.at(-2);
   assert.equal(session?.type === "session" && session.model, "anthropic:claude-opus-5");
   const refused = await h.command("model", "nonsense");

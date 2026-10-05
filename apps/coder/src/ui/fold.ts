@@ -9,6 +9,7 @@ import type { CoreMessage } from "@mini-agent/coder-core/wire";
 export type Item =
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
+  | { kind: "thinking"; text: string } // the model's reasoning, shown dim
   | { kind: "tool"; callId: string; name: string; input: unknown; output: string; status: "running" | "done" | "error" }
   | { kind: "notice"; text: string; isError: boolean };
 
@@ -60,7 +61,8 @@ export function fold(state: ViewState, action: Action): ViewState {
       return { ...state, running: true };
 
     case "thinking_delta":
-      return { ...state, thinking: true };
+      if (last?.kind !== "thinking") return { ...add({ kind: "thinking", text: action.text }), thinking: true };
+      return { ...state, thinking: true, items: [...state.items.slice(0, -1), { ...last, text: last.text + action.text }] };
 
     case "text_delta":
       if (last?.kind !== "assistant") return add({ kind: "assistant", text: action.text });

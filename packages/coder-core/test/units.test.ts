@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { Checkpoints } from "../src/checkpoints.js";
-import { alwaysRule, checkPermission, parseRule, splitCommand } from "../src/gate.js";
+import { alwaysRule, checkPermission, formatRule, parseRule, splitCommand } from "../src/gate.js";
 import { capOutput } from "../src/loop.js";
 import { formatModel, parseModel } from "../src/model.js";
 import { buildSystemPrompt } from "../src/prompt.js";
@@ -32,6 +32,10 @@ test("the gate decides by tool kind and mode", () => {
     const verdict = checkPermission(mode as never, tool(kind), {}, { allow: [], deny: [] });
     assert.equal(verdict.decision, expected, `${mode} / ${kind}`);
   }
+});
+
+test("a rule is written back the way it was read", () => {
+  for (const text of ["edit_file", "bash(npm test)", "bash(npm test:*)"]) assert.equal(formatRule(parseRule(text)), text);
 });
 
 test("always covers a file tool as a whole, a command only verbatim", () => {
@@ -88,6 +92,7 @@ test("rules: deny wins, a prefix rule covers arguments, every command of a line 
     ["bypass", "source .venv/bin/activate", "allow"],
     ["bypass", "cat ~/.ssh/id_rsa", "deny"],
     ["bypass", "echo x >> .mini-coder/settings.json", "deny"],
+    ["bypass", "echo x > ~/.mini-coder/projects/-home-me-app/settings.json", "deny"],
   ];
   for (const [mode, command, expected] of table) {
     assert.equal(checkPermission(mode as never, bash, { command }, rules).decision, expected, `${mode}: ${command}`);

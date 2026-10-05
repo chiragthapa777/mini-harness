@@ -47,6 +47,20 @@ test("a turn folds into user message, text, tool card, text", () => {
   assert.deepEqual(state.usage, { inputTokens: 50, outputTokens: 5 });
 });
 
+test("thinking is its own item, joined up, and the reply after it starts a new one", () => {
+  const thinking = run([
+    { type: "turn_start" },
+    { type: "thinking_delta", text: "The user wants" },
+    { type: "thinking_delta", text: " a greeting." },
+  ]);
+  assert.deepEqual(thinking.items, [{ kind: "thinking", text: "The user wants a greeting." }]);
+  assert.equal(thinking.thinking, true);
+
+  const replied = fold(thinking, { type: "text_delta", text: "Hello!" });
+  assert.deepEqual(replied.items.map((item) => item.kind), ["thinking", "assistant"]);
+  assert.equal(replied.thinking, false);
+});
+
 test("a replay rebuilds the transcript and leaves nothing running", () => {
   const state = run([
     {

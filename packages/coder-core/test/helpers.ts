@@ -5,7 +5,8 @@ import type { ChatClient, Msg } from "@mini-agent/llm";
 import { z } from "zod";
 import { Session, type SessionOptions } from "../src/session.js";
 import type { Tool } from "../src/tool.js";
-import type { Command, CoreMessage, Decision } from "../src/wire.js";
+import type { SettingsFile } from "../src/settings.js";
+import type { Command, CoreMessage, Decision, SettingsScope } from "../src/wire.js";
 
 /**
  * A scripted model reply. A string is streamed in small chunks. `hang`
@@ -92,6 +93,7 @@ export async function harness(options: {
   const events: CoreMessage[] = [];
   const asked: Omit<PermissionRequest, "type">[] = [];
   const answers = [...(options.answers ?? [])];
+  const saved: Record<SettingsScope, SettingsFile> = { project: {}, user: {} }; // the settings files, in memory
   let onTurnEnd = () => {};
   let onNotice = (_: Notice) => {};
 
@@ -117,6 +119,7 @@ export async function harness(options: {
       model: options.model,
       logFile: options.logFile,
       skills: options.skills,
+      saveSettings: async (scope, edit) => edit(saved[scope]),
     },
   );
 
@@ -135,7 +138,7 @@ export async function harness(options: {
     return noticed;
   }
 
-  return { session, model, events, asked, cwd, turn, command };
+  return { session, model, events, asked, saved, cwd, turn, command };
 }
 
 /** Events as short strings, without text deltas and usage. */

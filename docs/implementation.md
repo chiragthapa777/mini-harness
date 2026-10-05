@@ -403,15 +403,25 @@ brings `config` along, but never reads server config from it.
     over the whole command: `sudo`, deleting `/` or `~`, disk devices, a download piped
     to a shell, fork bombs, `.env*` (not `.env.example`), `~/.ssh`, mini-coder's settings.
     It is a pattern list, not a sandbox. Rules come from settings (`SessionOptions.rules`) and from "always" answers, which add an allow rule: a
-    file tool as a whole, a command only verbatim.
-  - `settings.ts` — `loadSettings(home, root)` merges `~/.mini-coder/settings.json`
-    with `<project>/.mini-coder/settings.json`: `model`, `mode`,
+    file tool as a whole, a command only verbatim. `formatRule` writes a rule back as text.
+    An "ask" verdict carries no reason: the prompt that follows says enough.
+  - `settings.ts` — `loadSettings(home, root)` merges three files, most specific first:
+    the local one, `~/.mini-coder/projects/<slug>/settings.json`; the repository's
+    `<project>/.mini-coder/settings.json`; the user's `~/.mini-coder/settings.json`.
+    Keys: `model`, `mode`,
     `permissions: { allow, deny }`, `providers: { <name>: { apiKey, baseUrl } }`,
-    `mcpServers: { <name>: { command, args, env, timeoutMs } }`, `sandbox`. The
-    project file is not trusted: only its `model`, `permissions.deny` and `sandbox: true`
-    count. A file
+    `mcpServers: { <name>: { command, args, env, timeoutMs } }`, `sandbox`. Rules add
+    up; otherwise the first file that sets a key wins. The repository's file is not
+    trusted: only its `model`, `permissions.deny` and `sandbox: true` count. A file
     that is not valid JSON, or names an unknown mode, model or rule, is refused with its
     path. Flags win over settings.
+    The persist side: `settingsFile(home, root, "project" | "user")` names the local or
+    the user's file, and `updateSettings(file, edit)` changes one and keeps every other
+    key; it refuses to overwrite a broken file, never writes an invalid one, and writes
+    a temp file then renames it. `addAllowRule` adds a rule once. The `Session` saves
+    through `SessionOptions.saveSettings(scope, edit)`: the two "always" answers
+    (`always_project`, `always_user`) and `/model`, which is kept for the project. A failed
+    save is a notice; the change still holds for the session.
   - `memory.ts` — `loadMemory(home, root)`, once per session: prompt text from
     `AGENTS.md` (user, then project), `MEMORY.md` (user, then
     `~/.mini-coder/projects/<slug>/MEMORY.md`) and a skill list (`skills/<name>/SKILL.md`
@@ -465,8 +475,8 @@ brings `config` along, but never reads server config from it.
     `end_turn`, 1 on any other stop, 130 on Ctrl+C (the turn is stopped first), 2 on bad
     arguments.
   - `src/ui/fold.ts` — view state is `fold(state, action)` over the core's messages plus
-    what the user sent: an append-only list of user, assistant, tool and
-    notice items. Pure; sending a message marks the turn running at once.
+    what the user sent: an append-only list of user, thinking, assistant, tool and
+    notice items. Thinking deltas join into one item, shown dim and italic after `✻`. Pure; sending a message marks the turn running at once.
   - `src/ui/App.tsx`, `src/ui/interactive.tsx` — `mini-coder` with no prompt: the Ink
     session (needs a terminal), laid out like Claude Code. A welcome box, then the
     transcript: `> ` user lines, `⏺` replies rendered as markdown, and tool cards
@@ -476,8 +486,9 @@ brings `config` along, but never reads server config from it.
     time and tokens, queued messages, a bordered input box, and a footer with the model
     and mode.
   - Permission prompt: the command, or the edit as a diff, in full (capped at 20 lines
-    with a visible count), then three choices — yes, yes and don't ask again, no —
-    picked with ↑↓ + Enter or 1-3. It ignores keys for its first 600 ms, so typing
+    with a visible count), then four choices — yes; yes and don't ask again in this
+    project; yes and don't ask again in any project; no — picked with ↑↓ + Enter or 1-4.
+    The two "always" choices are saved to the local or the user's settings. It ignores keys for its first 600 ms, so typing
     ahead cannot approve a call.
   - Input (`src/ui/input.ts`, pure): one line, cursor with ← → Ctrl+A/E, Ctrl+U clears,
     ↑ ↓ recall sent messages, pasted line breaks become spaces. Input typed during a

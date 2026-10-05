@@ -10,7 +10,10 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export const COMMANDS = ["clear", "compact", "undo", "model"] as const;
 export type Command = (typeof COMMANDS)[number];
 
-export type Decision = "allow" | "deny" | "always";
+/** The "always" answers also save an allow rule: in this project's settings, or the user's (every project). */
+export type Decision = "allow" | "deny" | "always_project" | "always_user";
+/** Which settings file a change is saved to. */
+export type SettingsScope = "project" | "user";
 export type StopReason = "end_turn" | "aborted" | "max_iterations" | "token_budget" | "length" | "error";
 
 /** A tool or a skill, as the UI lists it. */
@@ -35,7 +38,7 @@ export type CoreMessage =
   | { type: "tool_end"; callId: string; output: string; isError: boolean }
   | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "turn_end"; stopReason: StopReason; error?: string }
-  | { type: "permission_request"; callId: string; tool: string; input: unknown; reason: string }
+  | { type: "permission_request"; callId: string; tool: string; input: unknown }
   | { type: "notice"; text: string; isError?: boolean } // a command's result, or why a message was refused
   | { type: "user"; text: string } // what the user sent; the core sends it only inside a replay
   | { type: "replay"; messages: CoreMessage[] }; // a resumed session's earlier turns, to rebuild the screen

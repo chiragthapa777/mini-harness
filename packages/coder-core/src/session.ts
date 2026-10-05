@@ -1,13 +1,23 @@
 import { realpathSync, statSync } from "node:fs";
 import type { ChatClient, Msg } from "@mini-agent/llm";
 import { Checkpoints } from "./checkpoints.js";
-import { alwaysRule, checkPermission, parseRule, type Rules } from "./gate.js";
+import { alwaysRule, checkPermission, formatRule, parseRule, type Rules } from "./gate.js";
 import { DEFAULT_LIMITS, runLoop, type Limits } from "./loop.js";
 import { DEFAULT_MODEL, formatModel, parseModel, type ModelSpec } from "./model.js";
 import { buildSystemPrompt, COMPACT_PROMPT } from "./prompt.js";
 import { appendRecord, keepForReplay, readRecords, type SessionRecord } from "./sessions.js";
+import { addAllowRule, type SettingsFile } from "./settings.js";
 import type { Tool } from "./tool.js";
-import type { Command, CoreMessage, Decision, Listed, PermissionMode, StopReason, UiMessage } from "./wire.js";
+import type {
+  Command,
+  CoreMessage,
+  Decision,
+  Listed,
+  PermissionMode,
+  SettingsScope,
+  StopReason,
+  UiMessage,
+} from "./wire.js";
 
 export interface SessionOptions {
   cwd: string;
@@ -23,6 +33,8 @@ export interface SessionOptions {
   skills?: Listed[];
   /** The session log. A file that already has turns is resumed; without a file nothing is saved. */
   logFile?: string;
+  /** Saves a change to a settings file: "always" answers and `/model`. Without it nothing is saved. */
+  saveSettings?(scope: SettingsScope, edit: (settings: SettingsFile) => void): Promise<void>;
   limits?: Partial<Limits>;
 }
 
@@ -210,14 +222,27 @@ export class Session {
     const decision = await new Promise<Decision>((resolve) => {
       this.waitingPermissions.set(callId, resolve);
       signal.addEventListener("abort", () => resolve("deny"), { once: true });
-      this.send({ type: "permission_request", callId, tool: tool.name, input, reason: verdict.reason });
+      this.send({ type: "permission_request", callId, tool: tool.name, input });
     });
     this.waitingPermissions.delete(callId);
 
     if (signal.aborted) return "the user aborted the turn";
     if (decision === "deny") return "the user denied this call";
-    if (decision === "always") this.rules.allow.push(alwaysRule(tool, input));
+    if (decision === "always_project" || decision === "always_user") {
+      const rule = alwaysRule(tool, input);
+      this.rules.allow.push(rule);
+      await this.save(decision === "always_user" ? "user" : "project", (s) => addAllowRule(s, formatRule(rule)));
+    }
     return null;
+  }
+
+  /** Saves a settings change. A failed write is reported, never fatal: it still holds for this session. */
+  private async save(scope: SettingsScope, edit: (settings: SettingsFile) => void): Promise<void> {
+    try {
+      await this.options.saveSettings?.(scope, edit);
+    } catch (err) {
+      this.send({ type: "notice", text: `could not save the setting: ${(err as Error).message}`, isError: true });
+    }
   }
 
   /** Runs a slash command and reports the outcome as a notice. */
@@ -261,7 +286,9 @@ export class Session {
       this.spec = parseModel(arg);
       this.model = this.options.createModel(this.spec);
       this.sendSession();
-      return `model set to ${arg}`;
+      // Kept for this project: the next session here starts with it too.
+      await this.save("project", (s) => (s.model = formatModel(this.spec)));
+      return `model set to ${formatModel(this.spec)} for this project`;
     }
 
     throw new Error(`unknown command /${name}`);

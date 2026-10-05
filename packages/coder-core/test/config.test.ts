@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { checkPermission, parseRule } from "../src/gate.js";
 import { loadMemory } from "../src/memory.js";
-import { loadSettings } from "../src/settings.js";
+import { addAllowRule, loadSettings, settingsFile, updateSettings } from "../src/settings.js";
 import type { Tool, ToolContext } from "../src/tool.js";
 import { echoTool, tempProject } from "./helpers.js";
 
@@ -81,6 +81,48 @@ test("settings: a broken file is refused with its path", async () => {
     const home = await folder({ "settings.json": content });
     assert.throws(() => loadSettings(home, root), problem, content);
   }
+});
+
+test("settings: what is saved for a project or the user loads next time, and the project's file wins", async () => {
+  const home = await folder({ "settings.json": JSON.stringify({ model: "google:gemini-2.5-pro", theme: "dark" }) });
+  const root = await folder({ ".mini-coder/settings.json": JSON.stringify({ model: "openrouter:z-ai/glm-5.3-flash" }) });
+  const local = settingsFile(home, root, "project");
+  const user = settingsFile(home, root, "user");
+
+  await updateSettings(local, (s) => addAllowRule(s, "bash(npm test)"));
+  await updateSettings(local, (s) => addAllowRule(s, "bash(npm test)")); // once only
+  await updateSettings(local, (s) => (s.model = "anthropic:claude-opus-5"));
+  await updateSettings(user, (s) => addAllowRule(s, "edit_file"));
+
+  assert.equal(local, join(home, "projects", root.replaceAll("/", "-"), "settings.json"));
+  assert.deepEqual(JSON.parse(await readFile(local, "utf8")), {
+    permissions: { allow: ["bash(npm test)"] },
+    model: "anthropic:claude-opus-5",
+  });
+  // The rest of the user's file is kept, even a key mini-coder does not know.
+  assert.deepEqual(JSON.parse(await readFile(user, "utf8")), {
+    model: "google:gemini-2.5-pro",
+    theme: "dark",
+    permissions: { allow: ["edit_file"] },
+  });
+
+  const settings = loadSettings(home, root);
+  assert.equal(settings.model, "anthropic:claude-opus-5"); // over the repository's and the user's
+  assert.deepEqual(settings.permissions!.allow, ["bash(npm test)", "edit_file"]);
+});
+
+test("settings: a broken file is not overwritten, and nothing invalid is written", async () => {
+  const home = await folder({ "settings.json": "{ not json" });
+  const root = await tempProject();
+  const file = settingsFile(home, root, "user");
+
+  await assert.rejects(updateSettings(file, (s) => addAllowRule(s, "edit_file")), /settings\.json: .*JSON/);
+  assert.equal(await readFile(file, "utf8"), "{ not json");
+
+  const local = settingsFile(home, root, "project");
+  await assert.rejects(updateSettings(local, (s) => (s.mode = "yolo" as never)));
+  await assert.rejects(updateSettings(local, (s) => addAllowRule(s, "bash(echo a\necho b)")), /not a rule/);
+  await assert.rejects(readFile(local), /ENOENT/);
 });
 
 test("memory: AGENTS.md and facts go into the prompt; skills are listed and load on demand", async () => {

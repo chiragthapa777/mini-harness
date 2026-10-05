@@ -45,7 +45,7 @@ type UiMessage =
   | { type: "submit"; text: string }
   | { type: "abort" }
   | { type: "command"; name: "clear" | "compact" | "undo" | "model"; arg?: string }
-  | { type: "permission_answer"; callId: string; decision: "allow" | "deny" | "always" };
+  | { type: "permission_answer"; callId: string; decision: "allow" | "deny" | "always_project" | "always_user" };
 
 // core → UI: the send function given to the Session
 type CoreMessage =
@@ -58,7 +58,7 @@ type CoreMessage =
   | { type: "tool_end"; callId: string; output: string; isError: boolean }
   | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "turn_end"; stopReason: "end_turn" | "aborted" | "max_iterations" | "token_budget" | "length" | "error"; error?: string }
-  | { type: "permission_request"; callId: string; tool: string; input: unknown; reason: string }
+  | { type: "permission_request"; callId: string; tool: string; input: unknown }
   | { type: "notice"; text: string; isError?: boolean }
   | { type: "user"; text: string }              // only inside a replay
   | { type: "replay"; messages: CoreMessage[] }; // a resumed session's earlier turns
@@ -125,7 +125,7 @@ Given up: a UI written in another language, and a UI that survives a core crash.
 5. Mode `accept-edits` allows writes.
 6. Otherwise writes and commands ask.
 
-A rule is `tool`, `tool(command)` (exactly that) or `tool(command:*)` (that, or that plus arguments). A bash line is split into the commands it runs; every one needs an allow rule, and one denied command denies the line. A line with substitution, redirection or a subshell is not split, so only an exact rule covers it. Answering "always" adds an allow rule for the session: a file tool as a whole, a command only verbatim.
+A rule is `tool`, `tool(command)` (exactly that) or `tool(command:*)` (that, or that plus arguments). A bash line is split into the commands it runs; every one needs an allow rule, and one denied command denies the line. A line with substitution, redirection or a subshell is not split, so only an exact rule covers it. Answering "always" adds an allow rule and saves it, for this project or for every project (see Settings): a file tool as a whole, a command only verbatim.
 
 The block list is a set of patterns over the whole command: `sudo`, deleting `/` or `~`, disk devices, a download piped into a shell, and anything naming `.env*`, `~/.ssh` or mini-coder's settings. It is not a sandbox. The sandbox is: with `sandbox: true`, bash runs under macOS `sandbox-exec`, writing only inside the project, temp folders and package-manager caches. On other systems a sandboxed command refuses to run.
 
@@ -133,9 +133,11 @@ File tools go through the path guard: realpath, inside the project, never secret
 
 ## Settings
 
-`~/.mini-coder/settings.json` merged with `<project>/.mini-coder/settings.json`: `model`, `mode`, `permissions`, `providers`, `mcpServers`, `sandbox`. Flags win over settings.
+Three files, most specific first: the local file `~/.mini-coder/projects/<slug>/settings.json`, the repository's `<project>/.mini-coder/settings.json`, and the user's `~/.mini-coder/settings.json`. Keys: `model`, `mode`, `permissions`, `providers`, `mcpServers`, `sandbox`. Rules add up; otherwise the first file that sets a key wins. Flags win over settings.
 
-The project file comes with the repository, so it is not trusted to loosen anything. Only its `model`, its deny rules and `sandbox: true` count. Allow rules, the mode, provider keys and MCP servers come from the user's file alone; otherwise cloning a repository could hand it a shell or an API key.
+The repository's file comes with the clone, so it is not trusted to loosen anything. Only its `model`, its deny rules and `sandbox: true` count. Allow rules, the mode, provider keys and MCP servers come from the local and user files alone; otherwise cloning a repository could hand it a shell or an API key.
+
+mini-coder writes only the local and user files. Both live in `~/.mini-coder`, so they are never committed and a repository cannot ship one. An "always" answer saves its rule to either; `/model` saves the model to the local file. A write changes one key and keeps the rest of the file, never overwrites a broken file, and goes through a temp file and a rename.
 
 ## Memory
 
@@ -148,12 +150,13 @@ Plain files, no database. Everything mini-coder writes lives outside the project
   MEMORY.md                         facts about the user, all projects
   skills/<name>/SKILL.md            personal skills
   projects/<project-slug>/          slug = project realpath, "/" → "-"
+    settings.json                   local settings: "always" rules, /model
     MEMORY.md                       facts about this project
     sessions/<time>-<id>.jsonl      one line per turn
 
 <project>/
   AGENTS.md                         project rules, human-owned, committed
-  .mini-coder/settings.json         project settings
+  .mini-coder/settings.json         repository settings, untrusted
   .mini-coder/skills/<name>/SKILL.md project skills
 ```
 
@@ -183,7 +186,7 @@ Servers under `mcpServers` in the user's settings are started with `packages/mcp
 
 ## The interactive UI
 
-View state is `fold(state, message)`, pure and tested without a terminal. Finished items are printed once and left to the terminal's scrollback; only the last one redraws.
+View state is `fold(state, message)`, pure and tested without a terminal. The model's thinking is shown dim, above its reply. Finished items are printed once and left to the terminal's scrollback; only the last one redraws.
 
 Typing `/` opens a menu of actions and skills under the input, filtered by prefix. `/tools` lists what the model can use. A permission prompt shows the command or the edit in full and ignores keys for its first 600 ms, so typing ahead cannot approve a call.
 

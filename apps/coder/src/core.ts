@@ -6,6 +6,8 @@ import {
   loadSettings,
   Session,
   sessionFile,
+  settingsFile,
+  updateSettings,
   type Core,
   type CoreMessage,
   type PermissionMode,
@@ -19,8 +21,8 @@ const MAX_OUTPUT_TOKENS = 16_000;
 
 /**
  * Builds the core for a UI to drive — the one file that imports coder-core,
- * coder-tools and llm together, reads settings and memory from disk, and
- * starts the MCP servers.
+ * coder-tools and llm together, reads settings and memory from disk, gives
+ * the session a way to save settings, and starts the MCP servers.
  * Flags win over settings. `resume` continues the folder's latest session.
  * Throws when the folder, the model or a settings file is not usable, or
  * there is nothing to resume.
@@ -52,6 +54,7 @@ export async function startCore(options: {
       memory: memory.prompt,
       skills: memory.skills,
       logFile,
+      saveSettings: (scope, edit) => updateSettings(settingsFile(home, root, scope), edit),
       tools: [...createTools({ sandbox: settings.sandbox }), ...memory.tools, ...mcp.tools],
       createModel: ({ provider, model }) =>
         chatModel(provider, model, MAX_OUTPUT_TOKENS, settings.providers?.[provider]),
