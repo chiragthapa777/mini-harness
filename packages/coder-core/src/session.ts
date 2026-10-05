@@ -5,8 +5,9 @@ import { alwaysRule, checkPermission, formatRule, parseRule, type Rules } from "
 import { DEFAULT_LIMITS, runLoop, type Limits } from "./loop.js";
 import { DEFAULT_MODEL, formatModel, parseModel, type ModelSpec } from "./model.js";
 import { buildSystemPrompt, COMPACT_PROMPT } from "./prompt.js";
-import { appendRecord, keepForReplay, readRecords, type SessionRecord } from "./sessions.js";
+import { keepForReplay } from "./sessions.js";
 import { addAllowRule, type SettingsFile } from "./settings.js";
+import type { SessionLog, SessionRecord } from "./store.js";
 import type { Tool } from "./tool.js";
 import type {
   Command,
@@ -31,8 +32,8 @@ export interface SessionOptions {
   memory?: string;
   /** The skills behind that list. `/name` as a message asks the model to use one. */
   skills?: Listed[];
-  /** The session log. A file that already has turns is resumed; without a file nothing is saved. */
-  logFile?: string;
+  /** The session log. One that already has turns is resumed; without one nothing is saved. */
+  log?: SessionLog;
   /** Saves a change to a settings file: "always" answers and `/model`. Without it nothing is saved. */
   saveSettings?(scope: SettingsScope, edit: (settings: SettingsFile) => void): Promise<void>;
   limits?: Partial<Limits>;
@@ -87,7 +88,7 @@ export class Session {
     });
     this.sendSession();
 
-    const records = options.logFile ? readRecords(options.logFile) : [];
+    const records = options.log?.read() ?? [];
     for (const record of records) {
       if (record.reset) this.history = [];
       this.history.push(...record.history);
@@ -204,9 +205,9 @@ export class Session {
   /** Appends to the session log. A failed write is reported, never fatal: the session goes on unsaved. */
   private async log(record: Omit<SessionRecord, "at">): Promise<void> {
     this.logged = this.history.length;
-    if (!this.options.logFile) return;
+    if (!this.options.log) return;
     try {
-      await appendRecord(this.options.logFile, record);
+      await this.options.log.append(record);
     } catch (err) {
       this.send({ type: "notice", text: `could not save the session: ${(err as Error).message}`, isError: true });
     }

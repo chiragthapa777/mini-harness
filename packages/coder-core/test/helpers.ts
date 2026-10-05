@@ -6,6 +6,7 @@ import { z } from "zod";
 import { Session, type SessionOptions } from "../src/session.js";
 import type { Tool } from "../src/tool.js";
 import type { SettingsFile } from "../src/settings.js";
+import { SessionLog } from "../src/store.js";
 import type { Command, CoreMessage, Decision, SettingsScope } from "../src/wire.js";
 
 /**
@@ -117,7 +118,7 @@ export async function harness(options: {
       limits: options.limits,
       mode: options.mode,
       model: options.model,
-      logFile: options.logFile,
+      log: options.logFile ? new SessionLog(options.logFile) : undefined,
       skills: options.skills,
       saveSettings: async (scope, edit) => edit(saved[scope]),
     },

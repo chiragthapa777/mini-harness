@@ -5,8 +5,7 @@ import {
   loadMemory,
   loadSettings,
   Session,
-  sessionFile,
-  settingsFile,
+  Store,
   updateSettings,
   type Core,
   type CoreMessage,
@@ -37,24 +36,24 @@ export async function startCore(options: {
   const early: CoreMessage[] = [];
   let handler = (message: CoreMessage): void => void early.push(message);
 
-  const home = join(homedir(), ".mini-coder");
-  const root = realpathSync(options.cwd);
-  const settings = loadSettings(home, root);
-  const memory = loadMemory(home, root);
-  const logFile = sessionFile(home, root, options.resume ?? false);
+  // Everything mini-coder keeps on disk goes through the store.
+  const store = new Store(join(homedir(), ".mini-coder"), realpathSync(options.cwd));
+  const settings = loadSettings(store);
+  const memory = loadMemory(store);
+  const log = store.openSession(options.resume ?? false);
   const mcp = await connectMcp(settings.mcpServers ?? {});
 
   let session: Session;
   try {
     session = new Session((message) => handler(message), {
-      cwd: root,
+      cwd: store.root,
       model: options.model ?? settings.model,
       mode: options.mode ?? settings.mode,
       rules: settings.permissions,
       memory: memory.prompt,
       skills: memory.skills,
-      logFile,
-      saveSettings: (scope, edit) => updateSettings(settingsFile(home, root, scope), edit),
+      log,
+      saveSettings: (scope, edit) => updateSettings(store, scope, edit),
       tools: [...createTools({ sandbox: settings.sandbox }), ...memory.tools, ...mcp.tools],
       createModel: ({ provider, model }) =>
         chatModel(provider, model, MAX_OUTPUT_TOKENS, settings.providers?.[provider]),

@@ -1,18 +1,13 @@
-import { appendFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { z } from "zod";
-import { projectFolder, recallTool } from "./sessions.js";
+import { recallTool } from "./sessions.js";
+import type { Store } from "./store.js";
 import type { Tool } from "./tool.js";
 import type { Listed } from "./wire.js";
 
 /**
- * What outlives a session, as plain files (see docs/mini-coder-architecture.md).
- * `home` is `~/.mini-coder`; `root` is the project, already resolved.
- *
- *   <home>/AGENTS.md, <root>/AGENTS.md                   rules, written by people
- *   <home>/MEMORY.md, <home>/projects/<slug>/MEMORY.md   facts, one per line
- *   <home>/skills/<name>/SKILL.md, <root>/.mini-coder/skills/<name>/SKILL.md
- *   <home>/projects/<slug>/sessions/*.jsonl                session logs (sessions.ts)
+ * Memory for the prompt and the tools that reach it: rules (AGENTS.md),
+ * facts (MEMORY.md), skills and earlier sessions. Where each one is kept is
+ * the store's business (store.ts); this file decides what goes in the prompt.
  */
 
 const MAX_FILE_CHARS = 20_000;
@@ -21,46 +16,23 @@ const MAX_FACT_CHARS = 500;
 interface Skill {
   name: string;
   description: string;
-  file: string;
+  text: string;
 }
 
-function read(file: string): string {
-  try {
-    return readFileSync(file, "utf8").slice(0, MAX_FILE_CHARS).trim();
-  } catch {
-    return "";
-  }
-}
-
-function factsFile(home: string, root: string, scope: "user" | "project"): string {
-  return join(scope === "user" ? home : projectFolder(home, root), "MEMORY.md");
-}
-
-/** Skills by name: the folder is the name, `description:` in the file's front matter says when to use it. */
-function findSkills(folder: string): Skill[] {
-  let names: string[];
-  try {
-    names = readdirSync(folder);
-  } catch {
-    return [];
-  }
-  return names.flatMap((name) => {
-    const file = join(folder, name, "SKILL.md");
-    const description = /^description:\s*(.+)$/m.exec(read(file))?.[1]?.trim();
-    return description ? [{ name, description, file }] : [];
-  });
-}
+const clip = (text: string) => text.slice(0, MAX_FILE_CHARS).trim();
 
 /**
  * Loads memory once, at session start: the text for the system prompt, and
  * the tools that reach it. Nothing is re-read during the session, so the
  * prompt stays the same and the provider's cache keeps working.
  */
-export function loadMemory(home: string, root: string): { prompt: string; tools: Tool[]; skills: Listed[] } {
-  // A project skill replaces a personal one with the same name.
+export function loadMemory(store: Store): { prompt: string; tools: Tool[]; skills: Listed[] } {
+  // `description:` in a skill's front matter says when to use it; one without is skipped.
+  // The store lists the user's skills first, so a project skill replaces a personal one of the same name.
   const skills = new Map<string, Skill>();
-  for (const skill of [...findSkills(join(home, "skills")), ...findSkills(join(root, ".mini-coder", "skills"))]) {
-    skills.set(skill.name, skill);
+  for (const { name, text } of store.readSkills()) {
+    const description = /^description:\s*(.+)$/m.exec(clip(text))?.[1]?.trim();
+    if (description) skills.set(name, { name, description, text: clip(text) });
   }
 
   const section = (title: string, ...parts: string[]) => {
@@ -68,12 +40,8 @@ export function loadMemory(home: string, root: string): { prompt: string; tools:
     return body ? `## ${title}\n${body}` : "";
   };
   const prompt = [
-    section("Instructions from the user (AGENTS.md)", read(join(home, "AGENTS.md")), read(join(root, "AGENTS.md"))),
-    section(
-      "Remembered facts",
-      read(factsFile(home, root, "user")),
-      read(factsFile(home, root, "project")),
-    ),
+    section("Instructions from the user (AGENTS.md)", ...store.readRules().map(clip)),
+    section("Remembered facts", clip(store.readFacts("user")), clip(store.readFacts("project"))),
     section(
       "Skills",
       skills.size > 0 ? "Before a task one of these covers, load it with the skill tool and follow it." : "",
@@ -92,7 +60,7 @@ export function loadMemory(home: string, root: string): { prompt: string; tools:
     async run({ name }) {
       const skill = skills.get(name);
       if (!skill) throw new Error(`no skill named "${name}". Known: ${[...skills.keys()].join(", ") || "none"}`);
-      return read(skill.file);
+      return skill.text;
     },
   };
 
@@ -110,14 +78,12 @@ export function loadMemory(home: string, root: string): { prompt: string; tools:
     // ponytail: the file only grows. Upgrade: past ~200 lines, merge duplicates
     // and drop stale lines with a cheap model call at session end.
     async run({ fact, scope }) {
-      const file = factsFile(home, root, scope);
-      mkdirSync(dirname(file), { recursive: true });
-      appendFileSync(file, `- ${fact.replace(/\s+/g, " ").trim()}\n`);
+      await store.appendFact(scope, fact.replace(/\s+/g, " ").trim());
       return `remembered for ${scope === "user" ? "every project" : "this project"}`;
     },
   };
 
-  const recall = recallTool(join(projectFolder(home, root), "sessions"));
+  const recall = recallTool(() => store.sessionLogs());
   return {
     prompt,
     tools: skills.size > 0 ? [skillTool, rememberTool, recall] : [rememberTool, recall],

@@ -27,7 +27,7 @@ The UI and the core only exchange messages. A message is a plain object passed t
 
 | Package | Contains | May import |
 |---|---|---|
-| `coder-core` | `Session`, loop, permission gate, settings, memory, session log; `wire.ts`: the message types | `llm`, `core/protocol` |
+| `coder-core` | `Session`, loop, permission gate, settings, memory, session log; `store.ts`: the persistence layer; `wire.ts`: the message types | `llm`, `core/protocol` |
 | `coder-tools` | `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, the path guard | `coder-core` types |
 | `apps/coder` | `main.ts`, `core.ts`, `mcp.ts`, `ui/` | `ui/`: `coder-core/wire` and `ink-markdown` only |
 
@@ -142,6 +142,8 @@ mini-coder writes only the local and user files. Both live in `~/.mini-coder`, s
 ## Memory
 
 Plain files, no database. Everything mini-coder writes lives outside the project, so it is never committed.
+
+One layer does the reading and writing: `coder-core/src/store.ts`. It knows every path below and nothing about what the files mean; settings, memory and the session log get plain text and records from it. A test fails if any other core file reaches for the file system, except the `/undo` snapshots of project files.
 
 ```
 ~/.mini-coder/

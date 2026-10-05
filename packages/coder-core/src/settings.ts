@@ -1,10 +1,7 @@
-import { readFileSync } from "node:fs";
-import { mkdir, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import { z } from "zod";
 import { parseRule } from "./gate.js";
 import { parseModel } from "./model.js";
-import { projectFolder } from "./sessions.js";
+import type { SettingsSource, Store } from "./store.js";
 import { PERMISSION_MODES, type SettingsScope } from "./wire.js";
 
 const connection = z.object({ apiKey: z.string().optional(), baseUrl: z.string().optional() });
@@ -37,25 +34,6 @@ export type Settings = z.infer<typeof schema>;
 /** A settings file as written: every key optional. */
 export type SettingsFile = z.input<typeof schema>;
 
-/**
- * The settings files mini-coder writes to: the user's, for every project, and
- * this project's own. Both live in `<home>`, outside the project, so they are
- * never committed and a cloned repository cannot bring one along.
- */
-export function settingsFile(home: string, root: string, scope: SettingsScope): string {
-  return join(scope === "user" ? home : projectFolder(home, root), "settings.json");
-}
-
-/** The file's text, or "{}" when there is none. */
-function readText(file: string): string {
-  try {
-    return readFileSync(file, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return "{}";
-    throw err;
-  }
-}
-
 /** Throws when the settings are not usable: an unknown key value, model or rule. */
 function check(value: unknown): Settings {
   const settings = schema.parse(value);
@@ -64,32 +42,35 @@ function check(value: unknown): Settings {
   return settings;
 }
 
-function readSettings(file: string): Settings {
+/** One file as written, checked. No file, or an empty one, is no settings. Throws naming the file. */
+function readSettingsFile(store: Store, source: SettingsSource): { raw: SettingsFile; settings: Settings } {
   try {
-    return check(JSON.parse(readText(file)));
+    const text = store.readSettings(source);
+    const raw = (text.trim() ? JSON.parse(text) : {}) as SettingsFile;
+    return { raw, settings: check(raw) };
   } catch (err) {
     const problem = err instanceof z.ZodError ? z.prettifyError(err) : (err as Error).message;
-    throw new Error(`${file}: ${problem}`);
+    throw new Error(`${store.settingsPath(source)}: ${problem}`);
   }
 }
 
 /**
  * Merges three files, most specific first:
  *
- * - local: this project's settings in `<home>/projects/<slug>/settings.json`.
+ * - local: this project's settings, kept by mini-coder outside the project.
  *   Written by the user or by mini-coder, so trusted like the user's.
  * - repo: `<root>/.mini-coder/settings.json`. It comes with the repository,
  *   so it is not trusted to loosen anything: only its `model`,
  *   `permissions.deny` and `sandbox: true` count. Otherwise cloning a
  *   repository could hand it your shell or your API keys.
- * - user: `<home>/settings.json`, for every project.
+ * - user: the user's settings, for every project.
  *
  * Allow and deny rules add up; for anything else the first file that sets it wins.
  */
-export function loadSettings(home: string, root: string): Settings {
-  const local = readSettings(settingsFile(home, root, "project"));
-  const repo = readSettings(join(root, ".mini-coder", "settings.json"));
-  const user = readSettings(settingsFile(home, root, "user"));
+export function loadSettings(store: Store): Settings {
+  const local = readSettingsFile(store, "project").settings;
+  const repo = readSettingsFile(store, "repo").settings;
+  const user = readSettingsFile(store, "user").settings;
 
   return {
     model: local.model ?? repo.model ?? user.model,
@@ -105,20 +86,19 @@ export function loadSettings(home: string, root: string): Settings {
 }
 
 /**
- * Changes one settings file and keeps everything else in it. A file that is
- * not valid is refused rather than overwritten. Written to a temporary file
- * and renamed, so a crash cannot leave half a file.
+ * Changes the user's or the local settings and keeps everything else in the
+ * file. A file that is not valid is refused rather than overwritten, and a
+ * change that would not load is never written.
  */
-export async function updateSettings(file: string, edit: (settings: SettingsFile) => void): Promise<void> {
-  readSettings(file); // throws, naming the file, when it is broken
-  const settings = JSON.parse(readText(file)) as SettingsFile;
-  edit(settings);
-  check(settings); // never write a file that would not load
-
-  await mkdir(dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
-  await writeFile(temp, JSON.stringify(settings, null, 2) + "\n");
-  await rename(temp, file);
+export async function updateSettings(
+  store: Store,
+  scope: SettingsScope,
+  edit: (settings: SettingsFile) => void,
+): Promise<void> {
+  const { raw } = readSettingsFile(store, scope);
+  edit(raw);
+  check(raw);
+  await store.writeSettings(scope, raw);
 }
 
 /** Adds an allow rule, like `bash(npm test)`, once. */

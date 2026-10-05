@@ -405,7 +405,21 @@ brings `config` along, but never reads server config from it.
     It is a pattern list, not a sandbox. Rules come from settings (`SessionOptions.rules`) and from "always" answers, which add an allow rule: a
     file tool as a whole, a command only verbatim. `formatRule` writes a rule back as text.
     An "ask" verdict carries no reason: the prompt that follows says enough.
-  - `settings.ts` — `loadSettings(home, root)` merges three files, most specific first:
+  - `store.ts` — the persistence layer: the only file that reads or writes what
+    mini-coder keeps about itself, so it is the whole list of what lands on disk (its
+    header lists every path). `new Store(home, root)` with `home` = `~/.mini-coder`.
+    Settings: `settingsPath`/`readSettings(source)` for `user`, `project` (local) or `repo`,
+    `writeSettings(scope, value)` for `user` or `project`. Memory: `readRules()`,
+    `readFacts(scope)`, `appendFact(scope, fact)`, `readSkills()`. Sessions:
+    `openSession(resume)` (a new log, or the latest; throws when there is none),
+    `sessionLogs()` (oldest first), and `SessionLog` with `read()` and `append(record)`;
+    the `SessionRecord` type is here too. It moves text and records only: checking,
+    merging and the prompt stay with the callers. A missing file reads as `""`; writes
+    create their folder; a whole-file write is a temp file renamed into place. It writes
+    only under `~/.mini-coder`. `test/store.test.ts` fails if another `coder-core` file
+    uses the file system, except `checkpoints.ts` (project files, for `/undo`) and
+    `session.ts` (checks the folder exists).
+  - `settings.ts` — `loadSettings(store)` merges three files, most specific first:
     the local one, `~/.mini-coder/projects/<slug>/settings.json`; the repository's
     `<project>/.mini-coder/settings.json`; the user's `~/.mini-coder/settings.json`.
     Keys: `model`, `mode`,
@@ -414,27 +428,28 @@ brings `config` along, but never reads server config from it.
     up; otherwise the first file that sets a key wins. The repository's file is not
     trusted: only its `model`, `permissions.deny` and `sandbox: true` count. A file
     that is not valid JSON, or names an unknown mode, model or rule, is refused with its
-    path. Flags win over settings.
-    The persist side: `settingsFile(home, root, "project" | "user")` names the local or
-    the user's file, and `updateSettings(file, edit)` changes one and keeps every other
-    key; it refuses to overwrite a broken file, never writes an invalid one, and writes
-    a temp file then renames it. `addAllowRule` adds a rule once. The `Session` saves
+    path; an empty file counts as `{}`. Flags win over settings.
+    `updateSettings(store, scope, edit)` changes the user's or the local file and keeps
+    every other key; it refuses to overwrite a broken file and never writes one that
+    would not load. `addAllowRule` adds a rule once. The `Session` saves
     through `SessionOptions.saveSettings(scope, edit)`: the two "always" answers
     (`always_project`, `always_user`) and `/model`, which is kept for the project. A failed
     save is a notice; the change still holds for the session.
-  - `memory.ts` — `loadMemory(home, root)`, once per session: prompt text from
+  - `memory.ts` — `loadMemory(store)`, once per session: prompt text from
     `AGENTS.md` (user, then project), `MEMORY.md` (user, then
     `~/.mini-coder/projects/<slug>/MEMORY.md`) and a skill list (`skills/<name>/SKILL.md`
     with a `description:` line; a project skill replaces a personal one of the same
-    name). Tools: `skill(name)` returns the file, and exists only when there are skills;
+    name). Tools: `skill(name)` returns the skill's text, read at start like the rest
+    of memory, and exists only when there are skills;
     `remember(fact, scope)` appends one line; `recall(query)` (see `sessions.ts`). No size cap or cleanup yet.
-  - `sessions.ts` — the session log, `~/.mini-coder/projects/<slug>/sessions/<time>-<id>.jsonl`:
-    one JSON line per turn with `messages` (what a replay shows) and `history` (what the
-    turn added for the model); `/clear` and compaction write a `reset` line. A write that
-    fails is reported as a notice and the session goes on unsaved. `sessionFile(home,
-    root, resume)` names a new file or finds the latest. `recallTool` searches the
-    project's logs for turns containing every word of a query, newest first, 10 at most.
-  - Resume and compaction live in `session.ts`. A `logFile` that already has turns is
+  - `sessions.ts` — what goes in the session log
+    (`~/.mini-coder/projects/<slug>/sessions/<time>-<id>.jsonl`, kept by the store): one
+    JSON line per turn with `messages` (what a replay shows, picked by `keepForReplay`)
+    and `history` (what the turn added for the model); `/clear` and compaction write a
+    `reset` line. A write that fails is reported as a notice and the session goes on
+    unsaved. `recallTool(logs)` searches the project's logs for turns containing every
+    word of a query, newest first, 10 at most.
+  - Resume and compaction live in `session.ts`. A `log` (`SessionLog`) that already has turns is
     resumed: the history is rebuilt from it and one `replay` message is sent. Compaction
     asks the model for a summary (`COMPACT_PROMPT` in `prompt.ts`) and replaces the
     history with it: automatically before a turn that starts above
@@ -462,8 +477,9 @@ brings `config` along, but never reads server config from it.
   exits 2. `--resume` continues the folder's most recent session.
   - `src/core.ts` — `startCore({ cwd, model?, mode? })` wires core + tools + `llm` (the
     only place they meet) and returns a `Core`. Messages the session sends before the
-    UI sets its handler are kept and delivered first. It reads settings and memory from
-    `~/.mini-coder` and the project, and passes provider keys from settings to `llm`.
+    UI sets its handler are kept and delivered first. It builds the one `Store`, loads
+    settings and memory through it, opens the session log, gives the session
+    `saveSettings`, and passes provider keys from settings to `llm`.
     Async: it waits for the MCP servers first. `stop()` also shuts them down.
   - `src/mcp.ts` — `connectMcp(servers)` starts each server in `mcpServers` with
     `@mini-agent/mcp` and returns its tools as coder tools named `server__tool`, kind

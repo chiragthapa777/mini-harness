@@ -5,7 +5,7 @@ export { runLoop, capOutput, DEFAULT_LIMITS, type Limits, type LoopOptions } fro
 export { DEFAULT_MODEL, parseModel, formatModel, type ModelSpec } from "./model.js";
 export { buildSystemPrompt, type Environment } from "./prompt.js";
 export { Session, type SessionOptions } from "./session.js";
-export { addAllowRule, loadSettings, settingsFile, updateSettings, type Settings, type SettingsFile } from "./settings.js";
+export { addAllowRule, loadSettings, updateSettings, type Settings, type SettingsFile } from "./settings.js";
 export { loadMemory } from "./memory.js";
-export { sessionFile } from "./sessions.js";
+export { SessionLog, Store, type SessionRecord, type SettingsSource } from "./store.js";
 export * from "./wire.js";
